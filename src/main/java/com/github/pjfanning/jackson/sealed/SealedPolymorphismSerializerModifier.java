@@ -13,21 +13,27 @@ final class SealedPolymorphismSerializerModifier extends ValueSerializerModifier
 
     private static final long serialVersionUID = 1L;
 
+    private final transient SealedTypes types;
+
+    SealedPolymorphismSerializerModifier(SealedTypes types) {
+        this.types = types;
+    }
+
     @Override
     public ValueSerializer<?> modifySerializer(SerializationConfig config, BeanDescription.Supplier beanDescRef,
                                                ValueSerializer<?> serializer) {
         Class<?> rawClass = beanDescRef.getBeanClass();
-        if (!SealedTypes.isMarked(rawClass)) {
+        if (!types.isOptedIn(rawClass)) {
             return serializer;
         }
-        SealedTypes.checkNoConflictingJsonTypeInfo(rawClass);
+        types.checkNoConflictingJsonTypeInfo(rawClass);
         // a base type is never written directly - only the implementation dispatched to at runtime
-        if (!SealedTypes.isSupported(rawClass) || !SealedTypes.isConcrete(rawClass)) {
+        if (!types.isSupported(rawClass) || !SealedTypes.isConcrete(rawClass)) {
             return serializer;
         }
         @SuppressWarnings("unchecked")
         ValueSerializer<Object> delegate = (ValueSerializer<Object>) serializer;
-        return new TypeTaggedSerializer(SealedTypes.hierarchyOf(rawClass).nameOf(rawClass), delegate);
+        return new TypeTaggedSerializer(types.hierarchyOf(rawClass).nameOf(rawClass), delegate);
     }
 
 }

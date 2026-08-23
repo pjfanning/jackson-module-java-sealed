@@ -8,7 +8,7 @@ A Java port of the `SealedPolymorphismSupport` added to jackson-module-scala in
 using the same `@type` property and the same name-derivation rules. Enums are the one place the two
 diverge: Scala tags a `case object`, whereas this module leaves a Java enum to Jackson as a string.
 
-> **Status: early.** Covered by 76 tests, including ports of the Scala module's
+> **Status: early.** Covered by 95 tests, including ports of the Scala module's
 > `SealedPolymorphismSpec` and `NestedPolymorphismSpec`, so the examples below are verified output.
 > Snapshots are published, but there is no release yet and the API may still change.
 
@@ -74,8 +74,42 @@ mapper.readValue("{\"@type\":\"Dog\",\"name\":\"rex\"}", Animal.class);
 // Dog[name=rex]
 ```
 
-The module only ever looks at types carrying the marker, so registering it has no effect on
-anything else your application serializes.
+The module only ever looks at types that have opted in — through the marker, or through
+[registration](#hierarchies-you-cannot-change) — so adding it has no effect on anything else your
+application serializes.
+
+## Hierarchies you cannot change
+
+Extending the marker means editing the base type. Where that is not possible — a hierarchy from a
+library, or generated code — register the hierarchy's root with the module instead:
+
+```java
+SealedPolymorphismModule module = new SealedPolymorphismModule()
+        .registerSealedInterfaceOrClass(Animal.class)
+        .registerSealedInterfaceOrClass(Shape.class);
+
+ObjectMapper mapper = JsonMapper.builder().addModule(module).build();
+```
+
+Call `registerSealedInterfaceOrClass` once per hierarchy root, as often as needed. Registering adds
+to what the module already handles through the marker rather than replacing it, so marked and
+registered hierarchies work through the same mapper.
+
+A registered hierarchy is handled exactly as a marked one: same `@type` names, same reading, same
+requirement that it be sealed. Register the *root* — its implementations follow from the `permits`
+clause and do not need registering themselves. Registering a type part way down a hierarchy is
+allowed and makes that type the root, so names are derived relative to it and its siblings are left
+alone.
+
+`registerSealedInterfaceOrClass` rejects anything it cannot handle there and then, rather than
+later when Jackson first meets the type:
+
+| Argument | Result |
+| --- | --- |
+| `null` | error |
+| not `sealed` | error — registration replaces the marker, not the closed-hierarchy requirement |
+| an `enum` | error — enums are left to Jackson; register the sealed interface it implements instead |
+| carries `@JsonTypeInfo` | error — that already tells Jackson how to write and read the hierarchy |
 
 ## How names are derived
 
@@ -208,12 +242,13 @@ performance but not behaviour.
 
 ## Tests
 
-76 tests, in `src/test/java/com/github/pjfanning/jackson/sealed/`:
+95 tests, in `src/test/java/com/github/pjfanning/jackson/sealed/`:
 
 | Test | Covers |
 | --- | --- |
 | `poly/SealedPolymorphismTest` | Ported from the Scala `SealedPolymorphismSpec` |
 | `poly/EnumsUntouchedTest` | That enums serialize identically with and without this module |
+| `poly/RegisteredTypeTest` | Hierarchies opted in by registration rather than by the marker |
 | `poly/NestedPolymorphismTest` | Ported from the Scala `NestedPolymorphismSpec` — a polymorphic value holding a polymorphic value |
 | `poly/InvalidHierarchyTest` | The three ways a hierarchy can fail to be closed — not sealed, reopened by a `non-sealed` member, clashing derived names — on both the read and the write path, plus that a marked enum is ignored |
 | `SealedTypesTest` | The name derivation itself, and resolution |

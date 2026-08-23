@@ -2,8 +2,11 @@ package com.github.pjfanning.jackson.sealed;
 
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
@@ -11,8 +14,14 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 /**
  * Naming rules and policy behind {@link SealedPolymorphismSupport}.
  *
- * <p>Every path through the module asks {@link #isMarked} first, so a class that does not carry the
- * marker never reaches any of the reflection here, and an application's own types are untouched.
+ * <p>A hierarchy opts in either by extending the marker or by being registered with the module, so
+ * which types are handled depends on how the module was configured - that part is per instance. The
+ * name table of a hierarchy is derived from the class files alone and is the same however the
+ * hierarchy opted in, so that part is cached globally.
+ *
+ * <p>Every path through the module asks {@link #isOptedIn} first, and a class that carries neither
+ * the marker nor a registration answers in constant time, so an application's own types are
+ * untouched.
  */
 final class SealedTypes {
 
@@ -21,37 +30,88 @@ final class SealedTypes {
 
     private static final Class<SealedPolymorphismSupport> MARKER = SealedPolymorphismSupport.class;
 
-    private SealedTypes() {
-    }
+    /** Keyed by root, and independent of how that root opted in. */
+    private static volatile ClassValue<SealedHierarchy> hierarchiesByRoot = newHierarchyCache();
+
+    private volatile Set<Class<?>> registeredRoots = Set.of();
+    private volatile ClassValue<Optional<Class<?>>> rootsByMember = newRootCache();
 
     /**
-     * True for a type that opts into this module - the marker itself does not count, so that the
-     * marker interface can be referred to without being treated as a hierarchy.
+     * Registers a hierarchy root, to be handled as if it carried the marker. Registering the same
+     * type twice is harmless.
+     *
+     * <p>Roots may be added at any point, so anything already worked out about which hierarchy a
+     * type belongs to is discarded - a type that resolved to nothing, or to a root further down,
+     * may now resolve differently.
      */
-    static boolean isMarked(Class<?> clazz) {
-        return clazz != null && clazz != MARKER && MARKER.isAssignableFrom(clazz);
+    synchronized void register(Class<?> root) {
+        checkRegistrable(root);
+        if (registeredRoots.contains(root)) {
+            return;
+        }
+        Set<Class<?>> updated = new LinkedHashSet<>(registeredRoots);
+        updated.add(root);
+        registeredRoots = Collections.unmodifiableSet(updated);
+        rootsByMember = newRootCache();
     }
 
     /**
-     * True for a marked type this module should handle. A hierarchy whose root carries
+     * Checks a type may be registered as a hierarchy root. Registration is the way in for a
+     * hierarchy whose source cannot be changed to extend the marker, so it accepts anything the
+     * marker would - but no more: the hierarchy still has to be sealed.
+     */
+    private static void checkRegistrable(Class<?> root) {
+        if (root == null) {
+            throw new IllegalArgumentException("Cannot register a null type as a sealed hierarchy root.");
+        }
+        if (enumClassOf(root) != null) {
+            throw new IllegalArgumentException(root.getName() + " is an enum, so cannot be registered as a "
+                    + "hierarchy root. Enums are left to Jackson, which writes them as strings. Register the sealed "
+                    + "interface it implements instead - the enum itself stays a string either way.");
+        }
+        if (!root.isSealed()) {
+            throw new IllegalArgumentException(root.getName() + " cannot be registered with "
+                    + SealedPolymorphismModule.class.getSimpleName() + " because it is not sealed. Only sealed "
+                    + "hierarchies are supported: registration replaces the " + MARKER.getSimpleName()
+                    + " marker, not the requirement that the hierarchy be closed.");
+        }
+        if (root.getAnnotation(JsonTypeInfo.class) != null) {
+            throw new IllegalArgumentException(root.getName() + " cannot be registered with "
+                    + SealedPolymorphismModule.class.getSimpleName() + " because it carries @JsonTypeInfo. That "
+                    + "annotation already tells Jackson how to write and read the hierarchy, so registering it here "
+                    + "would ask for two type properties at once. Remove the annotation to use "
+                    + TYPE_PROPERTY_NAME + ", or leave it and do not register the type.");
+        }
+    }
+
+    /** The types registered with this module, in the order they were given. */
+    Set<Class<?>> registeredRoots() {
+        return registeredRoots;
+    }
+
+    /**
+     * True for a type in a hierarchy this module handles, whether it opted in through the marker or
+     * through registration.
+     */
+    boolean isOptedIn(Class<?> clazz) {
+        return clazz != null && rootsByMember.get(clazz).isPresent();
+    }
+
+    /**
+     * True for an opted-in type this module should handle. A hierarchy whose root carries
      * {@code @JsonTypeInfo} is left to Jackson's own polymorphic handling rather than being tagged
      * twice.
      */
-    static boolean isSupported(Class<?> clazz) {
+    boolean isSupported(Class<?> clazz) {
         // an enum is Jackson's to write, as a string; this module does not take that over
-        return isMarked(clazz) && enumClassOf(clazz) == null && !hierarchyOf(clazz).isJacksonOwned();
-    }
-
-    /** True for a type that can hold a value of its own, so can carry a name of its own. */
-    static boolean isConcrete(Class<?> clazz) {
-        return !clazz.isInterface() && !Modifier.isAbstract(clazz.getModifiers());
+        return isOptedIn(clazz) && enumClassOf(clazz) == null && !hierarchyOf(clazz).isJacksonOwned();
     }
 
     /**
      * True for a type that can only be dispatched on, never instantiated - an interface or abstract
      * class. Reading one means reading whatever its {@code @type} names.
      */
-    static boolean isBaseType(Class<?> clazz) {
+    boolean isBaseType(Class<?> clazz) {
         return isSupported(clazz) && !isConcrete(clazz);
     }
 
@@ -61,25 +121,108 @@ final class SealedTypes {
      * one of these has to dispatch rather than read straight through to the bean, or a subclass
      * would silently be read back as the type the property was declared as.
      */
-    static boolean needsSubtypeDispatch(Class<?> clazz) {
+    boolean needsSubtypeDispatch(Class<?> clazz) {
         return isSupported(clazz) && isConcrete(clazz) && clazz.isSealed();
     }
 
     /**
      * {@code @JsonTypeInfo} on an implementation rather than on the root cannot be honoured
      * alongside {@code @type}: Jackson treats the annotated class as a polymorphic base in its own
-     * right, so reading it demands that annotation's type id, which nothing in a marked hierarchy
+     * right, so reading it demands that annotation's type id, which nothing in a handled hierarchy
      * ever writes. The combination is reported rather than left to produce JSON that cannot be read
      * back.
      */
-    static void checkNoConflictingJsonTypeInfo(Class<?> clazz) {
+    void checkNoConflictingJsonTypeInfo(Class<?> clazz) {
         if (isSupported(clazz) && clazz.getAnnotation(JsonTypeInfo.class) != null) {
             Class<?> root = hierarchyOf(clazz).root();
-            throw new IllegalArgumentException(clazz.getName() + " carries @JsonTypeInfo but belongs to the "
-                    + MARKER.getSimpleName() + " hierarchy rooted at " + root.getName() + ". Move the annotation to "
-                    + root.getSimpleName() + " to use Jackson's polymorphic handling for the whole hierarchy, or "
-                    + "remove it to use " + TYPE_PROPERTY_NAME + ".");
+            throw new IllegalArgumentException(clazz.getName() + " carries @JsonTypeInfo but belongs to the sealed "
+                    + "hierarchy rooted at " + root.getName() + ", which " + SealedPolymorphismModule.class.getSimpleName()
+                    + " handles. Move the annotation to " + root.getSimpleName() + " to use Jackson's polymorphic "
+                    + "handling for the whole hierarchy, or remove it to use " + TYPE_PROPERTY_NAME + ".");
         }
+    }
+
+    /**
+     * The top of the hierarchy {@code clazz} belongs to. The {@code @JsonTypeInfo} opt-out is read
+     * from the root rather than from {@code clazz} itself so that both halves of the module agree:
+     * an annotation on one implementation governs that implementation's own subtypes, and must not
+     * silently switch off tagging for it while the base is still dispatching on {@code @type}.
+     */
+    Class<?> rootOf(Class<?> clazz) {
+        return rootsByMember.get(clazz).orElseThrow(() -> new IllegalArgumentException(clazz.getName()
+                + " does not implement " + MARKER.getName() + ", and is not registered with "
+                + SealedPolymorphismModule.class.getSimpleName() + "."));
+    }
+
+    /** The resolved hierarchy {@code clazz} belongs to, built once per root. */
+    SealedHierarchy hierarchyOf(Class<?> clazz) {
+        return hierarchiesByRoot.get(rootOf(clazz));
+    }
+
+    private ClassValue<Optional<Class<?>>> newRootCache() {
+        return new ClassValue<>() {
+            @Override
+            protected Optional<Class<?>> computeValue(Class<?> type) {
+                return findRoot(type);
+            }
+        };
+    }
+
+    private Optional<Class<?>> findRoot(Class<?> clazz) {
+        if (clazz == MARKER) {
+            return Optional.empty();
+        }
+        // the common case: no marker anywhere above, and nothing registered to reach either
+        if (!MARKER.isAssignableFrom(clazz) && registeredRoots.isEmpty()) {
+            return Optional.empty();
+        }
+        Set<Class<?>> optedIn = new LinkedHashSet<>();
+        collectOptedIn(clazz, optedIn, new HashSet<>());
+        if (optedIn.isEmpty()) {
+            return Optional.empty();
+        }
+        Class<?> root = null;
+        for (Class<?> candidate : optedIn) {
+            if (root == null || candidate.isAssignableFrom(root)) {
+                root = candidate;
+            }
+        }
+        List<String> disjoint = new ArrayList<>();
+        for (Class<?> candidate : optedIn) {
+            if (!root.isAssignableFrom(candidate)) {
+                disjoint.add(candidate.getName());
+            }
+        }
+        if (!disjoint.isEmpty()) {
+            throw new IllegalArgumentException(clazz.getName() + " belongs to more than one sealed hierarchy handled "
+                    + "by " + SealedPolymorphismModule.class.getSimpleName() + " - " + root.getName() + " and "
+                    + String.join(", ", disjoint) + " - so there is no single hierarchy whose names it could be "
+                    + "written under. Opt only one of them in.");
+        }
+        return Optional.of(root);
+    }
+
+    /**
+     * Collects every supertype that has opted in. Unlike the marker, a registration names one type
+     * rather than everything below it, so the walk cannot stop at a supertype that has not opted in
+     * - a registered root may sit above several plain classes.
+     */
+    private void collectOptedIn(Class<?> clazz, Set<Class<?>> into, Set<Class<?>> visited) {
+        if (clazz == null || clazz == Object.class || clazz == MARKER || !visited.add(clazz)) {
+            return;
+        }
+        if (MARKER.isAssignableFrom(clazz) || registeredRoots.contains(clazz)) {
+            into.add(clazz);
+        }
+        collectOptedIn(clazz.getSuperclass(), into, visited);
+        for (Class<?> iface : clazz.getInterfaces()) {
+            collectOptedIn(iface, into, visited);
+        }
+    }
+
+    /** True for a type that can hold a value of its own, so can carry a name of its own. */
+    static boolean isConcrete(Class<?> clazz) {
+        return !clazz.isInterface() && !Modifier.isAbstract(clazz.getModifiers());
     }
 
     /**
@@ -136,83 +279,23 @@ final class SealedTypes {
     }
 
     /**
-     * The top of the marked hierarchy {@code clazz} belongs to. The {@code @JsonTypeInfo} opt-out is
-     * read from the root rather than from {@code clazz} itself so that both halves of the module
-     * agree: an annotation on one implementation governs that implementation's own subtypes, and
-     * must not silently switch off tagging for it while the base is still dispatching on
-     * {@code @type}.
-     */
-    static Class<?> rootOf(Class<?> clazz) {
-        Set<Class<?>> marked = new LinkedHashSet<>();
-        collectMarked(clazz, marked);
-        Class<?> root = null;
-        for (Class<?> candidate : marked) {
-            if (root == null || candidate.isAssignableFrom(root)) {
-                root = candidate;
-            }
-        }
-        if (root == null) {
-            throw new IllegalArgumentException(clazz.getName() + " does not implement " + MARKER.getName() + ".");
-        }
-        List<String> disjoint = new ArrayList<>();
-        for (Class<?> candidate : marked) {
-            if (!root.isAssignableFrom(candidate)) {
-                disjoint.add(candidate.getName());
-            }
-        }
-        if (!disjoint.isEmpty()) {
-            throw new IllegalArgumentException(clazz.getName() + " belongs to more than one "
-                    + MARKER.getSimpleName() + " hierarchy - " + root.getName() + " and " + String.join(", ", disjoint)
-                    + " - so there is no single hierarchy whose names it could be written under. Mark only one of "
-                    + "them, and let the other be a plain interface.");
-        }
-        return root;
-    }
-
-    private static void collectMarked(Class<?> clazz, Set<Class<?>> into) {
-        if (clazz == null || clazz == MARKER || !MARKER.isAssignableFrom(clazz)) {
-            return;
-        }
-        if (!into.add(clazz)) {
-            return;
-        }
-        collectMarked(clazz.getSuperclass(), into);
-        for (Class<?> iface : clazz.getInterfaces()) {
-            collectMarked(iface, into);
-        }
-    }
-
-    /** The resolved hierarchy {@code clazz} belongs to, built once per root. */
-    static SealedHierarchy hierarchyOf(Class<?> clazz) {
-        return cache.byMember.get(clazz);
-    }
-
-    /**
      * Empties the cache of resolved hierarchies. The cache is only a memo of what is derived from
      * the class files, so clearing it affects performance but not behaviour.
      */
     static void clearCache() {
-        cache = new Cache();
+        hierarchiesByRoot = newHierarchyCache();
     }
 
     /**
-     * Held in {@link ClassValue}s so that entries are collected along with the classes they describe
-     * rather than pinning a class loader, and replaced wholesale to clear.
+     * Held in a {@link ClassValue} so that entries are collected along with the classes they
+     * describe rather than pinning a class loader, and replaced wholesale to clear.
      */
-    private static final class Cache {
-        final ClassValue<SealedHierarchy> byRoot = new ClassValue<>() {
+    private static ClassValue<SealedHierarchy> newHierarchyCache() {
+        return new ClassValue<>() {
             @Override
             protected SealedHierarchy computeValue(Class<?> root) {
                 return SealedHierarchy.of(root);
             }
         };
-        final ClassValue<SealedHierarchy> byMember = new ClassValue<>() {
-            @Override
-            protected SealedHierarchy computeValue(Class<?> type) {
-                return byRoot.get(rootOf(type));
-            }
-        };
     }
-
-    private static volatile Cache cache = new Cache();
 }
