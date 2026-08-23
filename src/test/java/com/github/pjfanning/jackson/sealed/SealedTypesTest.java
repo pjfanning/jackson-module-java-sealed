@@ -53,9 +53,19 @@ class SealedTypesTest {
     @Test
     void keepsTheEnclosingClassOfAnImplementationDeclaredElsewhere() {
         assertThat(SealedTypes.typeNameFor(Fixtures.Dup.class, Fixtures.FirstGroup.Same.class))
-                .isEqualTo("FirstGroup$Same");
+                .isEqualTo("FirstGroup.Same");
         assertThat(SealedTypes.typeNameFor(Fixtures.Dup.class, Fixtures.SecondGroup.Same.class))
-                .isEqualTo("SecondGroup$Same");
+                .isEqualTo("SecondGroup.Same");
+    }
+
+    /** Only a `$` that separates a class from the one enclosing it becomes a dot. */
+    @Test
+    void turnsOnlyNestingBoundariesIntoDots() {
+        assertThat(SealedTypes.typeNameFor(Fixtures.Expr.class, Fixtures.Grouped.Inner.class))
+                .isEqualTo("Grouped.Inner");
+        assertThat(SealedTypes.typeNameFor(Fixtures.Expr.class, Fixtures.Odd$Name.class))
+                .isEqualTo("Odd$Name");
+        assertThat(SealedTypes.typeNameFor(Fixtures.Expr.class, Fixtures.Lit.class)).isEqualTo("Lit");
     }
 
     @Test

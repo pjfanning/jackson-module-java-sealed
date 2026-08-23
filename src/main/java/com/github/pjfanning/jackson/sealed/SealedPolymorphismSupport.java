@@ -27,8 +27,8 @@ package com.github.pjfanning.jackson.sealed;
  * <pre>{@code
  * public sealed interface Dup extends SealedPolymorphismSupport permits Boxed.Same, Nested.Same {}
  *
- * class Boxed  { record Same(int v)    implements Dup {} }  // {"@type":"Boxed$Same","v":1}
- * class Nested { record Same(String v) implements Dup {} }  // {"@type":"Nested$Same","v":"x"}
+ * class Boxed  { record Same(int v)    implements Dup {} }  // {"@type":"Boxed.Same","v":1}
+ * class Nested { record Same(String v) implements Dup {} }  // {"@type":"Nested.Same","v":"x"}
  * }</pre>
  *
  * <p>Unlike Scala, {@code javac} records a sealed hierarchy in the class file, so the set of

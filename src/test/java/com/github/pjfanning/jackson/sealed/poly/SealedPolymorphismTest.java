@@ -169,11 +169,31 @@ class SealedPolymorphismTest {
     @Test
     void qualifiesImplementationsDeclaredInClassesThatDoNotEncloseTheBase() {
         assertThat(mapper.writeValueAsString(new DupHolder(new FirstGroup.Same(1))))
-                .isEqualTo("{\"d\":{\"@type\":\"FirstGroup$Same\",\"v\":1}}");
+                .isEqualTo("{\"d\":{\"@type\":\"FirstGroup.Same\",\"v\":1}}");
         assertThat(mapper.writeValueAsString(new DupHolder(new SecondGroup.Same("x"))))
-                .isEqualTo("{\"d\":{\"@type\":\"SecondGroup$Same\",\"v\":\"x\"}}");
+                .isEqualTo("{\"d\":{\"@type\":\"SecondGroup.Same\",\"v\":\"x\"}}");
         assertThat(mapper.writeValueAsString(new DupHolder(new FirstGroup.Only())))
-                .isEqualTo("{\"d\":{\"@type\":\"FirstGroup$Only\"}}");
+                .isEqualTo("{\"d\":{\"@type\":\"FirstGroup.Only\"}}");
+    }
+
+    /** A dot separates a nested implementation from what encloses it, as jackson-databind does. */
+    @Test
+    void usesADotForTheClassEnclosingAnImplementation() {
+        String json = mapper.writeValueAsString(new Fixtures.ExprHolder(new Fixtures.Grouped.Inner(5)));
+        assertThat(json).isEqualTo("{\"expr\":{\"@type\":\"Grouped.Inner\",\"v\":5}}");
+        assertThat(mapper.readValue(json, Fixtures.ExprHolder.class))
+                .isEqualTo(new Fixtures.ExprHolder(new Fixtures.Grouped.Inner(5)));
+    }
+
+    /** A dollar that is part of a class's own name is not nesting, and must survive intact. */
+    @Test
+    void keepsADollarThatIsPartOfTheClassName() {
+        String json = mapper.writeValueAsString(new Fixtures.ExprHolder(new Fixtures.Odd$Name(1, 2)));
+        assertThat(json).isEqualTo("{\"expr\":{\"@type\":\"Odd$Name\",\"head\":1,\"tail\":2}}");
+        assertThat(mapper.readValue(json, Fixtures.ExprHolder.class))
+                .isEqualTo(new Fixtures.ExprHolder(new Fixtures.Odd$Name(1, 2)));
+        assertThat(mapper.writeValueAsString(new Fixtures.ExprHolder(new Fixtures.Lit(3))))
+                .isEqualTo("{\"expr\":{\"@type\":\"Lit\",\"v\":3}}");
     }
 
     @Test

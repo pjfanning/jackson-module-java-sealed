@@ -156,18 +156,46 @@ final class SealedTypes {
      *
      * <p>An implementation declared beside the root, or nested inside the root itself, keeps its
      * simple name. One nested inside some other class keeps that class in its name -
-     * {@code Boxed$Same} rather than {@code Same} - so that two classes can each hold an
-     * implementation of the same name.
+     * {@code Boxed.Same} rather than {@code Same} - so that two classes can each hold an
+     * implementation of the same name. The dot matches how jackson-databind separates a name from
+     * what encloses it; the JVM writes that boundary as a {@code $}.
      */
     static String typeNameFor(Class<?> root, Class<?> clazz) {
         String name = clazz.getName();
         // prefixes run longest to shortest, so the first match is the most specific
+        int start = -1;
         for (String prefix : prefixesFor(root.getName())) {
             if (name.startsWith(prefix)) {
-                return name.substring(prefix.length());
+                start = prefix.length();
+                break;
             }
         }
-        return name.substring(name.lastIndexOf('.') + 1);
+        if (start < 0) {
+            start = name.lastIndexOf('.') + 1;
+        }
+        char[] derived = name.substring(start).toCharArray();
+        for (int boundary : nestingBoundaries(clazz)) {
+            if (boundary >= start) {
+                derived[boundary - start] = '.';
+            }
+        }
+        return new String(derived);
+    }
+
+    /**
+     * Where in a class name a {@code $} separates a class from the one enclosing it.
+     *
+     * <p>Only those are nesting, and only those become a dot. A {@code $} is a legal character in a
+     * Java identifier, so a class may have one in a name of its own making, and the enclosing chain
+     * is what tells the two apart.
+     */
+    private static List<Integer> nestingBoundaries(Class<?> clazz) {
+        List<Integer> boundaries = new ArrayList<>();
+        for (Class<?> enclosing = clazz.getEnclosingClass(); enclosing != null;
+             enclosing = enclosing.getEnclosingClass()) {
+            boundaries.add(enclosing.getName().length());
+        }
+        return boundaries;
     }
 
     /**
