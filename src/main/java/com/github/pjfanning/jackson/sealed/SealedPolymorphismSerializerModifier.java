@@ -26,6 +26,10 @@ final class SealedPolymorphismSerializerModifier extends ValueSerializerModifier
         if (!SealedTypes.isSupported(rawClass) || !SealedTypes.isConcrete(rawClass)) {
             return serializer;
         }
+        // an enum reaches this path as well as modifyEnumSerializer, and is named per constant
+        if (SealedTypes.enumClassOf(rawClass) != null) {
+            return new TypeTaggedEnumSerializer(SealedTypes.hierarchyOf(rawClass));
+        }
         @SuppressWarnings("unchecked")
         ValueSerializer<Object> delegate = (ValueSerializer<Object>) serializer;
         return new TypeTaggedSerializer(SealedTypes.hierarchyOf(rawClass).nameOf(rawClass), delegate);

@@ -16,6 +16,19 @@ import tools.jackson.databind.util.NameTransformer;
  */
 final class TypeTaggedSerializer extends ValueSerializer<Object> {
 
+    /**
+     * Stands in for the unwrapping view of a delegate that has no properties to unwrap. A concrete
+     * type with no properties at all gets a serializer that writes a whole empty object rather than
+     * a bean serializer, and such a serializer hands back itself when asked to unwrap - writing that
+     * inside the tagged object would start a second object where a property name is expected.
+     */
+    private static final ValueSerializer<Object> WRITES_NOTHING = new ValueSerializer<>() {
+        @Override
+        public void serialize(Object value, JsonGenerator gen, SerializationContext ctxt) {
+            // the tag is the whole of the object
+        }
+    };
+
     private final String typeName;
     private final ValueSerializer<Object> delegate;
     /** Resolved lazily - the delegate has to be resolved before it can hand out an unwrapping view. */
@@ -54,7 +67,8 @@ final class TypeTaggedSerializer extends ValueSerializer<Object> {
         ValueSerializer<Object> resolved = unwrapped;
         if (resolved == null) {
             // idempotent, so an unsynchronized race simply recomputes the same view
-            resolved = delegate.unwrappingSerializer(NameTransformer.NOP);
+            ValueSerializer<Object> view = delegate.unwrappingSerializer(NameTransformer.NOP);
+            resolved = view.isUnwrappingSerializer() ? view : WRITES_NOTHING;
             unwrapped = resolved;
         }
         return resolved;
