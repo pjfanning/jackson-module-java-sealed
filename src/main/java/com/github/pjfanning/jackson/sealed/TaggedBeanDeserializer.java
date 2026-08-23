@@ -16,10 +16,12 @@ import tools.jackson.databind.ValueDeserializer;
 final class TaggedBeanDeserializer extends ValueDeserializer<Object> {
 
     private final Class<?> declaredClass;
+    private final SealedHierarchy hierarchy;
     private final ValueDeserializer<Object> delegate;
 
-    TaggedBeanDeserializer(Class<?> declaredClass, ValueDeserializer<Object> delegate) {
+    TaggedBeanDeserializer(Class<?> declaredClass, SealedHierarchy hierarchy, ValueDeserializer<Object> delegate) {
         this.declaredClass = declaredClass;
+        this.hierarchy = hierarchy;
         this.delegate = delegate;
     }
 
@@ -36,7 +38,7 @@ final class TaggedBeanDeserializer extends ValueDeserializer<Object> {
         }
         @SuppressWarnings("unchecked")
         ValueDeserializer<Object> typed = (ValueDeserializer<Object>) contextual;
-        return new TaggedBeanDeserializer(declaredClass, typed);
+        return new TaggedBeanDeserializer(declaredClass, hierarchy, typed);
     }
 
     @Override
@@ -49,9 +51,9 @@ final class TaggedBeanDeserializer extends ValueDeserializer<Object> {
         if (tagged.typeName() == null) {
             return delegate.deserialize(tagged.parser(), ctxt);
         }
-        Class<?> subtype = SealedTypes.hierarchyOf(declaredClass).resolve(declaredClass, tagged.typeName());
+        Class<?> subtype = hierarchy.resolve(declaredClass, tagged.typeName());
         if (subtype == null) {
-            return TaggedObject.unresolved(ctxt, declaredClass, tagged.typeName());
+            return TaggedObject.unresolved(ctxt, declaredClass, tagged.typeName(), hierarchy);
         }
         if (subtype == declaredClass) {
             return delegate.deserialize(tagged.parser(), ctxt);
