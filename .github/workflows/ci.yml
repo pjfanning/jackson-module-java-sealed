@@ -79,11 +79,11 @@ jobs:
       - name: Check publishing credentials
         id: creds
         env:
-          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
         run: |
-          if [ -z "$CENTRAL_USERNAME" ]; then
+          if [ -z "$SONATYPE_USERNAME" ]; then
             echo 'configured=false' >> "$GITHUB_OUTPUT"
-            echo '::warning::CENTRAL_USERNAME and CENTRAL_PASSWORD are not set - skipping the snapshot publish. Add them as repository secrets, using a Central Portal user token.'
+            echo '::warning::SONATYPE_USERNAME and SONATYPE_PASSWORD are not set - skipping the snapshot publish.'
           else
             echo 'configured=true' >> "$GITHUB_OUTPUT"
           fi
@@ -101,6 +101,10 @@ jobs:
       - name: Publish to Sonatype Central snapshots
         if: steps.creds.outputs.configured == 'true'
         env:
-          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
-          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+          # Signing is skipped entirely when PGP_SECRET is absent, so the publish still works
+          # without a key - but it is present here, so the artifacts go up signed.
+          PGP_SECRET: ${{ secrets.PGP_SECRET }}
+          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
         run: ./gradlew publishMavenJavaPublicationToCentralSnapshotsRepository --no-daemon

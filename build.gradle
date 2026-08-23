@@ -1,6 +1,7 @@
 plugins {
     id 'java-library'
     id 'maven-publish'
+    id 'signing'
 }
 
 group = project.property('group')
@@ -106,16 +107,16 @@ publishing {
     }
     repositories {
         // Snapshots on the Sonatype Central Portal. Credentials are a Central Portal user token,
-        // not the account password. Releases go through a different endpoint and need signing, so
-        // they are deliberately not wired up here yet.
+        // not the account password. Releases go through the Portal's bundle upload API rather than
+        // this repository, so they are still not wired up here.
         maven {
             name = 'centralSnapshots'
             url = uri('https://central.sonatype.com/repository/maven-snapshots/')
             credentials {
-                username = providers.gradleProperty('centralUsername')
-                        .orElse(providers.environmentVariable('CENTRAL_USERNAME')).getOrElse('')
-                password = providers.gradleProperty('centralPassword')
-                        .orElse(providers.environmentVariable('CENTRAL_PASSWORD')).getOrElse('')
+                username = providers.gradleProperty('sonatypeUsername')
+                        .orElse(providers.environmentVariable('SONATYPE_USERNAME')).getOrElse('')
+                password = providers.gradleProperty('sonatypePassword')
+                        .orElse(providers.environmentVariable('SONATYPE_PASSWORD')).getOrElse('')
             }
         }
     }
@@ -124,4 +125,23 @@ publishing {
 tasks.register('printCp') {
     def cp = configurations.compileClasspath
     doLast { println cp.files.join(':') }
+}
+
+// Artifacts are signed whenever a key is available, and simply not signed when one is not - so a
+// local build needs no key, while CI signs with the one in PGP_SECRET. The key is read in memory
+// rather than from a keyring, since there is no keyring on a CI runner.
+signing {
+    def pgpSecret = providers.environmentVariable('PGP_SECRET')
+            .orElse(providers.gradleProperty('pgpSecret')).getOrElse('')
+    def pgpPassphrase = providers.environmentVariable('PGP_PASSPHRASE')
+            .orElse(providers.gradleProperty('pgpPassphrase')).getOrElse('')
+    if (!pgpSecret.isEmpty()) {
+        // `gpg --armor --export-secret-keys | base64` is the usual way to get a key into a secret,
+        // but accept a plain armoured key too rather than fail obscurely on the wrong one
+        def armoured = pgpSecret.trim().startsWith('-----BEGIN')
+                ? pgpSecret
+                : new String(Base64.decoder.decode(pgpSecret.replaceAll('\\s', '')), 'UTF-8')
+        useInMemoryPgpKeys(armoured, pgpPassphrase)
+        sign publishing.publications.mavenJava
+    }
 }
