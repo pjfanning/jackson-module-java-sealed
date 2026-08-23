@@ -8,7 +8,7 @@ style rather than a missing capability. Extend `SealedPolymorphismSupport` from 
 hierarchy and every implementation gains a `@type` property, with no Jackson annotations on your
 types at all.
 
-> **Status: early.** Covered by 90 tests, so the examples below are verified output. Snapshots are
+> **Status: early.** Covered by 93 tests, so the examples below are verified output. Snapshots are
 > published, but there is no release yet and the API may still change.
 
 ## Jackson can already do this
@@ -37,8 +37,8 @@ than this module. What follows is what you get by using this module instead.
 
 That last row is the one substantive difference. Given `Boxed.Same` and `Nested.Same` in one
 hierarchy, `Id.SIMPLE_NAME` writes `{"type":"Same"}` for both — and reads both back as
-`Nested.Same`, so a `Boxed.Same` silently becomes something else. This module derives `Boxed$Same`
-and `Nested$Same`, and refuses at startup if two implementations would still collide.
+`Nested.Same`, so a `Boxed.Same` silently becomes something else. This module derives `Boxed.Same`
+and `Nested.Same`, and refuses at startup if two implementations would still collide.
 
 ## Requirements
 
@@ -163,9 +163,14 @@ implementation called the same thing:
 ```java
 public sealed interface Dup extends SealedPolymorphismSupport permits Boxed.Same, Nested.Same {}
 
-class Boxed  { record Same(int v)    implements Dup {} }   // {"@type":"Boxed$Same","v":1}
-class Nested { record Same(String v) implements Dup {} }   // {"@type":"Nested$Same","v":"x"}
+class Boxed  { record Same(int v)    implements Dup {} }   // {"@type":"Boxed.Same","v":1}
+class Nested { record Same(String v) implements Dup {} }   // {"@type":"Nested.Same","v":"x"}
 ```
+
+The dot separates a nested implementation from the class enclosing it, as jackson-databind does; the
+JVM writes that boundary as a `$`. Only a real nesting boundary becomes a dot, so a `$` that is part
+of a class's own name is left alone. A dot in a `@type` can never address a package either: names
+are resolved against the hierarchy's own table, never handed to `Class.forName`.
 
 If two implementations would derive the same name, that is reported as a configuration error rather
 than producing JSON that could not be read back unambiguously.
@@ -269,7 +274,7 @@ performance but not behaviour.
 
 ## Tests
 
-90 tests, in `src/test/java/com/github/pjfanning/jackson/sealed/`:
+93 tests, in `src/test/java/com/github/pjfanning/jackson/sealed/`:
 
 | Test | Covers |
 | --- | --- |

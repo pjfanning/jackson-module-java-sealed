@@ -303,6 +303,29 @@ public final class Fixtures {
     public record ModeHolder(Mode mode) {
     }
 
+    // `$` is legal in a Java identifier, so a class can carry one that is not nesting and must
+    // survive intact - the counterpart of Scala compiling `::` to `$colon$colon`
+    public sealed interface Expr extends SealedPolymorphismSupport permits Lit, Odd$Name, Grouped.Inner {
+    }
+
+    public record Lit(int v) implements Expr {
+    }
+
+    @SuppressWarnings("checkstyle:TypeName")
+    public record Odd$Name(int head, int tail) implements Expr {
+    }
+
+    public static final class Grouped {
+        private Grouped() {
+        }
+
+        public record Inner(int v) implements Expr {
+        }
+    }
+
+    public record ExprHolder(Expr expr) {
+    }
+
     // a hierarchy that is not marked - it must be untouched
     public sealed interface Plain permits PlainDog {
     }

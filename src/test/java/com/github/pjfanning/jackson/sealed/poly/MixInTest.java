@@ -110,9 +110,9 @@ class MixInTest {
     @Test
     void appliesTheSameNamingRulesToAMixedInHierarchy() {
         assertThat(mapper.writeValueAsString(new Manifest(new Hold.Item(1))))
-                .isEqualTo("{\"cargo\":{\"@type\":\"Hold$Item\",\"n\":1}}");
+                .isEqualTo("{\"cargo\":{\"@type\":\"Hold.Item\",\"n\":1}}");
         assertThat(mapper.writeValueAsString(new Manifest(new Deck.Item("x"))))
-                .isEqualTo("{\"cargo\":{\"@type\":\"Deck$Item\",\"s\":\"x\"}}");
+                .isEqualTo("{\"cargo\":{\"@type\":\"Deck.Item\",\"s\":\"x\"}}");
         assertThat(roundTrip(mapper, new Manifest(new Deck.Item("x")), Manifest.class))
                 .isEqualTo(new Manifest(new Deck.Item("x")));
     }
