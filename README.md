@@ -1,16 +1,44 @@
 # jackson-module-java-sealed
 
-Automatic polymorphic serialization for Java 17+ `sealed` hierarchies, without the
-`@JsonTypeInfo` and `@JsonSubTypes` annotations Jackson normally requires.
+Polymorphic serialization for Java 17+ `sealed` hierarchies, opted into with a marker interface
+instead of an annotation.
 
-A Java port of the `SealedPolymorphismSupport` added to jackson-module-scala in
-[FasterXML/jackson-module-scala#835](https://github.com/FasterXML/jackson-module-scala/pull/835),
-using the same `@type` property and the same name-derivation rules. Enums are the one place the two
-diverge: Scala tags a `case object`, whereas this module leaves a Java enum to Jackson as a string.
+Jackson can already do this — see [below](#jackson-can-already-do-this) — so this is an alternative
+style rather than a missing capability. Extend `SealedPolymorphismSupport` from the base of a sealed
+hierarchy and every implementation gains a `@type` property, with no Jackson annotations on your
+types at all.
 
-> **Status: early.** Covered by 90 tests, including ports of the Scala module's
-> `SealedPolymorphismSpec` and `NestedPolymorphismSpec`, so the examples below are verified output.
-> Snapshots are published, but there is no release yet and the API may still change.
+> **Status: early.** Covered by 90 tests, so the examples below are verified output. Snapshots are
+> published, but there is no release yet and the API may still change.
+
+## Jackson can already do this
+
+`@JsonTypeInfo` on a sealed base is enough on its own. Jackson reads the permitted subclasses from
+the class file, so there is no `@JsonSubTypes` to write and no list to keep in step:
+
+```java
+@JsonTypeInfo(use = JsonTypeInfo.Id.SIMPLE_NAME, include = JsonTypeInfo.As.PROPERTY, property = "type")
+public sealed interface Shape permits Circle, Square {}
+
+// {"type":"Circle","r":2.0}
+```
+
+If that suits you, use it — it is one annotation, it ships with Jackson, and it is more configurable
+than this module. What follows is what you get by using this module instead.
+
+| | `@JsonTypeInfo` | this module |
+| --- | --- | --- |
+| Opting in | annotation on the base | marker interface on the base |
+| Property name | yours, via `property=` | always `@type` |
+| Type id | `Id.SIMPLE_NAME` gives `Circle`; `Id.NAME` qualifies a nested class; `Id.CLASS` is fully qualified | the binary name with the root's shared prefix removed — never fully qualified |
+| Configurability | inclusion style, visibility, defaults, custom resolvers | none of it |
+| Hierarchies you cannot edit | a mix-in carrying `@JsonTypeInfo` | a mix-in carrying the marker |
+| Two nested implementations sharing a simple name | see below | reported as a configuration error |
+
+That last row is the one substantive difference. Given `Boxed.Same` and `Nested.Same` in one
+hierarchy, `Id.SIMPLE_NAME` writes `{"type":"Same"}` for both — and reads both back as
+`Nested.Same`, so a `Boxed.Same` silently becomes something else. This module derives `Boxed$Same`
+and `Nested$Same`, and refuses at startup if two implementations would still collide.
 
 ## Requirements
 
@@ -150,10 +178,6 @@ the `PermittedSubclasses` attribute. That gives a closed name-to-class table per
 resolve at all. It is never fed to `Class.forName`, so it cannot be used to load an arbitrary class,
 and a name from a sibling branch will not resolve into a property that could not hold it.
 
-This is the main thing the Java version does better than the Scala one. scalac leaves no trace of
-`sealed` on the JVM, so jackson-module-scala has to rebuild candidate class names from where the
-base is declared and filter them by subtype relationship.
-
 ## Enums are left to Jackson
 
 This module does not touch enums, even ones permitted by a hierarchy it handles. Jackson writes an
@@ -249,10 +273,10 @@ performance but not behaviour.
 
 | Test | Covers |
 | --- | --- |
-| `poly/SealedPolymorphismTest` | Ported from the Scala `SealedPolymorphismSpec` |
+| `poly/SealedPolymorphismTest` | Tagging, reading, and the naming rules |
 | `poly/EnumsUntouchedTest` | That enums serialize identically with and without this module |
 | `poly/MixInTest` | Hierarchies opted in by a Jackson mix-in rather than by the marker |
-| `poly/NestedPolymorphismTest` | Ported from the Scala `NestedPolymorphismSpec` — a polymorphic value holding a polymorphic value |
+| `poly/NestedPolymorphismTest` | A polymorphic value holding a polymorphic value |
 | `poly/InvalidHierarchyTest` | The three ways a hierarchy can fail to be closed — not sealed, reopened by a `non-sealed` member, clashing derived names — on both the read and the write path, plus that a marked enum is ignored |
 | `SealedTypesTest` | The name derivation itself, and resolution |
 
@@ -265,6 +289,15 @@ performance but not behaviour.
 - Polymorphic values as `Map` keys. A tagged object cannot be a JSON property name, so a handled
   hierarchy is not usable as a key type. Enum keys are unaffected, being Jackson's to write.
 - Reading an enum member back through the hierarchy's base type — see above.
+
+## Prior art
+
+The design follows the `SealedPolymorphismSupport` added to jackson-module-scala in
+[FasterXML/jackson-module-scala#835](https://github.com/FasterXML/jackson-module-scala/pull/835) —
+same marker-interface approach, same `@type` property, same rule for deriving names. The two are not
+a matched pair and no cross-language compatibility is claimed or tested; Java enums alone would
+break it, since this module leaves them to Jackson as strings where the Scala module tags a
+`case object`.
 
 ## License
 
