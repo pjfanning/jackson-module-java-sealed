@@ -290,14 +290,24 @@ performance but not behaviour.
   hierarchy is not usable as a key type. Enum keys are unaffected, being Jackson's to write.
 - Reading an enum member back through the hierarchy's base type — see above.
 
-## Prior art
+## Keeping in step with jackson-module-scala
 
 The design follows the `SealedPolymorphismSupport` added to jackson-module-scala in
-[FasterXML/jackson-module-scala#835](https://github.com/FasterXML/jackson-module-scala/pull/835) —
-same marker-interface approach, same `@type` property, same rule for deriving names. The two are not
-a matched pair and no cross-language compatibility is claimed or tested; Java enums alone would
-break it, since this module leaves them to Jackson as strings where the Scala module tags a
-`case object`.
+[FasterXML/jackson-module-scala#835](https://github.com/FasterXML/jackson-module-scala/pull/835):
+the same marker-interface opt-in, the same `@type` property, and the same rule for deriving a name
+from the hierarchy root. The aim is to keep the two in step, so that a sealed hierarchy modelled in
+either language is written and read the same way, and a change to one is worth mirroring in the
+other.
+
+The constructs line up more closely than the two languages might suggest. A Scala `case class` and a
+Java record are both written `{"@type":"Name", ...}`; a Scala `case object` and a Java record with no
+components are both written `{"@type":"Name"}`.
+
+Enums are not a counterpart pair, and do not need to be. A Scala 3 `enum` is nearer a sealed
+hierarchy than a Java enum: its cases can carry data, so jackson-module-scala has separate support
+that tags those parameterized cases with the same `@type` property, writing the simple cases as a
+bare name. A Java enum constant carries no data of its own, so Jackson writes it as a name and this
+module leaves it alone — which is the same outcome, reached without needing to be told.
 
 ## License
 
