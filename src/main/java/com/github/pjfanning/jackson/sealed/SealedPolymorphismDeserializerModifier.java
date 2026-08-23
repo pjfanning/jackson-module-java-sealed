@@ -2,7 +2,6 @@ package com.github.pjfanning.jackson.sealed;
 
 import tools.jackson.databind.BeanDescription;
 import tools.jackson.databind.DeserializationConfig;
-import tools.jackson.databind.JavaType;
 import tools.jackson.databind.ValueDeserializer;
 import tools.jackson.databind.deser.BeanDeserializerBuilder;
 import tools.jackson.databind.deser.ValueDeserializerModifier;
@@ -42,16 +41,4 @@ final class SealedPolymorphismDeserializerModifier extends ValueDeserializerModi
         return new TaggedBeanDeserializer(rawClass, delegate);
     }
 
-    @Override
-    public ValueDeserializer<?> modifyEnumDeserializer(DeserializationConfig config, JavaType valueType,
-                                                       BeanDescription.Supplier beanDescRef,
-                                                       ValueDeserializer<?> deserializer) {
-        Class<?> rawClass = valueType.getRawClass();
-        if (!SealedTypes.isMarked(rawClass) || !SealedTypes.isSupported(rawClass)) {
-            return deserializer;
-        }
-        @SuppressWarnings("unchecked")
-        ValueDeserializer<Object> delegate = (ValueDeserializer<Object>) deserializer;
-        return new TaggedEnumDeserializer(rawClass, delegate);
-    }
 }

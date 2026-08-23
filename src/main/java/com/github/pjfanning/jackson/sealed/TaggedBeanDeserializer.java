@@ -49,16 +49,13 @@ final class TaggedBeanDeserializer extends ValueDeserializer<Object> {
         if (tagged.typeName() == null) {
             return delegate.deserialize(tagged.parser(), ctxt);
         }
-        Subtype subtype = SealedTypes.hierarchyOf(declaredClass).resolve(declaredClass, tagged.typeName());
+        Class<?> subtype = SealedTypes.hierarchyOf(declaredClass).resolve(declaredClass, tagged.typeName());
         if (subtype == null) {
             return TaggedObject.unresolved(ctxt, declaredClass, tagged.typeName());
         }
-        if (subtype.type() == declaredClass) {
+        if (subtype == declaredClass) {
             return delegate.deserialize(tagged.parser(), ctxt);
         }
-        if (subtype.singleton() != null) {
-            return subtype.singleton();
-        }
-        return ctxt.readValue(tagged.parser(), subtype.type());
+        return ctxt.readValue(tagged.parser(), subtype);
     }
 }

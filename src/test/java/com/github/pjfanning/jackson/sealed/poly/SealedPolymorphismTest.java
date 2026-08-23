@@ -226,23 +226,37 @@ class SealedPolymorphismTest {
         assertThat(branch.getLabel()).isEqualTo("u");
     }
 
+    /** An enum is left to Jackson, which writes it as a string - it gets no tag of its own. */
     @Test
-    void namesEachConstantOfAnEnumMember() {
+    void leavesAnEnumMemberToJackson() {
         assertThat(mapper.writeValueAsString(new SignalHolder(Status.IDLE)))
-                .isEqualTo("{\"signal\":{\"@type\":\"Status$IDLE\"}}");
+                .isEqualTo("{\"signal\":\"IDLE\"}");
+        // its sibling in the same hierarchy is tagged as usual
         assertThat(mapper.writeValueAsString(new SignalHolder(new Data(1))))
                 .isEqualTo("{\"signal\":{\"@type\":\"Data\",\"value\":1}}");
     }
 
     @Test
-    void roundTripsAnEnumMemberToTheSameConstant() {
-        assertThat(roundTrip(new SignalHolder(Status.BUSY), SignalHolder.class).signal()).isSameAs(Status.BUSY);
-        assertThat(mapper.readValue("{\"@type\":\"Status$IDLE\"}", Signal.class)).isSameAs(Status.IDLE);
+    void roundTripsAnEnumDeclaredAsItsOwnType() {
+        assertThat(mapper.writeValueAsString(new StatusHolder(Status.BUSY)))
+                .isEqualTo("{\"status\":\"BUSY\"}");
+        assertThat(roundTrip(new StatusHolder(Status.BUSY), StatusHolder.class).status()).isSameAs(Status.BUSY);
     }
 
+    /**
+     * The consequence of leaving enums alone: a string is not something the base type can dispatch
+     * on, so an enum value written at the base type cannot be read back there. The failure says so.
+     */
     @Test
-    void roundTripsAnEnumDeclaredAsItsOwnType() {
-        assertThat(roundTrip(new StatusHolder(Status.BUSY), StatusHolder.class).status()).isSameAs(Status.BUSY);
+    void cannotReadAnEnumMemberBackThroughTheBaseType() {
+        String json = mapper.writeValueAsString(new SignalHolder(Status.IDLE));
+        assertThatThrownBy(() -> mapper.readValue(json, SignalHolder.class))
+                .satisfies(error -> assertThat(String.valueOf(rootCause(error).getMessage()))
+                        .contains("Expected a JSON object")
+                        .contains("permits Status, Mode")
+                        .contains("writes as a string")
+                        .contains("Declare the property as the enum type itself"));
+        assertThat(Signal.class).isNotNull();
     }
 
     @Test

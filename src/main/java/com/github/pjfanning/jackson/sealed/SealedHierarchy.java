@@ -2,16 +2,20 @@ package com.github.pjfanning.jackson.sealed;
 
 import java.lang.reflect.Modifier;
 import java.util.ArrayDeque;
+import java.util.Arrays;
 import java.util.Deque;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
 /**
- * The implementations of one marked hierarchy, and the {@code @type} name each is written under.
+ * The implementations of one hierarchy, and the {@code @type} name each is written under.
  *
  * <p>Built once per hierarchy root by walking the {@code PermittedSubclasses} attribute that
  * {@code javac} records for every {@code sealed} type. The result is an exact, closed table: a name
@@ -22,32 +26,32 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
  *
  * <p>Building the table is also where the hierarchy is checked to be closed, so a type that could
  * not be read back is reported before anything is written.
+ *
+ * <p>Enum members are left out. Jackson writes an enum as a string, and this module does not take
+ * that over, so an enum permitted by the root carries no {@code @type} name of its own.
  */
 final class SealedHierarchy {
 
     private final Class<?> root;
     /** True when the root carries {@code @JsonTypeInfo}, so Jackson's own handling owns it. */
     private final boolean jacksonOwned;
-    private final Map<String, Subtype> byName;
+    private final Map<String, Class<?>> byName;
     private final Map<Class<?>, String> namesByClass;
+    /** Permitted enums, kept only so that a value of one can be explained when it cannot be read. */
+    private final Set<Class<?>> enumMembers;
 
-    private SealedHierarchy(Class<?> root, boolean jacksonOwned,
-                            Map<String, Subtype> byName, Map<Class<?>, String> namesByClass) {
+    private SealedHierarchy(Class<?> root, boolean jacksonOwned, Map<String, Class<?>> byName,
+                            Map<Class<?>, String> namesByClass, Set<Class<?>> enumMembers) {
         this.root = root;
         this.jacksonOwned = jacksonOwned;
         this.byName = byName;
         this.namesByClass = namesByClass;
+        this.enumMembers = enumMembers;
     }
 
     static SealedHierarchy of(Class<?> root) {
         if (root.getAnnotation(JsonTypeInfo.class) != null) {
-            return new SealedHierarchy(root, true, Map.of(), Map.of());
-        }
-        if (SealedTypes.enumClassOf(root) != null) {
-            throw new IllegalArgumentException(root.getName() + " is an enum marked with "
-                    + SealedPolymorphismSupport.class.getSimpleName() + ". An enum is not a hierarchy of its own; "
-                    + "mark the sealed interface it implements instead, and its constants are named "
-                    + "individually within that hierarchy.");
+            return new SealedHierarchy(root, true, Map.of(), Map.of(), Set.of());
         }
         if (!root.isSealed()) {
             throw new IllegalArgumentException(root.getName() + " is marked with "
@@ -56,62 +60,56 @@ final class SealedHierarchy {
                     + "its permitted subtypes as `final` or `sealed` in turn.");
         }
 
-        Map<String, Subtype> byName = new HashMap<>();
+        Map<String, Class<?>> byName = new HashMap<>();
         Map<Class<?>, String> namesByClass = new HashMap<>();
-        collect(root, root, byName, namesByClass, new HashSet<>());
-        return new SealedHierarchy(root, false, Map.copyOf(byName), Map.copyOf(namesByClass));
+        Set<Class<?>> enumMembers = new LinkedHashSet<>();
+        collect(root, byName, namesByClass, enumMembers);
+        // Set.copyOf does not keep insertion order, and this set is rendered into an error message
+        return new SealedHierarchy(root, false, Map.copyOf(byName), Map.copyOf(namesByClass),
+                Collections.unmodifiableSet(enumMembers));
     }
 
-    private static void collect(Class<?> root, Class<?> current, Map<String, Subtype> byName,
-                                Map<Class<?>, String> namesByClass, Set<Class<?>> seen) {
+    private static void collect(Class<?> root, Map<String, Class<?>> byName, Map<Class<?>, String> namesByClass,
+                                Set<Class<?>> enumMembers) {
+        Set<Class<?>> seen = new HashSet<>();
         Deque<Class<?>> queue = new ArrayDeque<>();
-        queue.add(current);
+        queue.add(root);
         while (!queue.isEmpty()) {
             Class<?> clazz = queue.poll();
             if (!seen.add(clazz)) {
                 continue;
             }
+            // an enum is Jackson's to write, as a string - it takes no name here, and its constant
+            // bodies are not part of this hierarchy either
             Class<?> enumClass = SealedTypes.enumClassOf(clazz);
             if (enumClass != null) {
-                // an enum is closed by construction, and each constant is a value of the hierarchy in
-                // its own right - the Java counterpart of the Scala module's `case object`
-                String prefix = SealedTypes.typeNameFor(root, enumClass);
-                for (Object constant : enumClass.getEnumConstants()) {
-                    Enum<?> value = (Enum<?>) constant;
-                    register(root, byName, prefix + '$' + value.name(), Subtype.ofConstant(value), value.getClass());
-                }
+                enumMembers.add(enumClass);
                 continue;
             }
 
-            int modifiers = clazz.getModifiers();
             boolean sealed = clazz.isSealed();
-            if (!sealed && !Modifier.isFinal(modifiers)) {
-                throw new IllegalArgumentException(clazz.getName() + " belongs to the "
-                        + SealedPolymorphismSupport.class.getSimpleName() + " hierarchy rooted at " + root.getName()
-                        + ", but is neither sealed nor final. A `non-sealed` type reopens the hierarchy, so its "
-                        + "subclasses could not be resolved back from a " + SealedTypes.TYPE_PROPERTY_NAME
-                        + " name; declare " + clazz.getSimpleName() + " as `final` or `sealed`.");
+            if (!sealed && !Modifier.isFinal(clazz.getModifiers())) {
+                throw new IllegalArgumentException(clazz.getName() + " belongs to the sealed hierarchy rooted at "
+                        + root.getName() + ", but is neither sealed nor final. A `non-sealed` type reopens the "
+                        + "hierarchy, so its subclasses could not be resolved back from a "
+                        + SealedTypes.TYPE_PROPERTY_NAME + " name; declare " + clazz.getSimpleName()
+                        + " as `final` or `sealed`.");
             }
             // an interface or abstract class is only ever dispatched through, so carries no name of its own
             if (SealedTypes.isConcrete(clazz)) {
                 String name = SealedTypes.typeNameFor(root, clazz);
-                register(root, byName, name, Subtype.ofClass(clazz), clazz);
+                Class<?> existing = byName.putIfAbsent(name, clazz);
+                if (existing != null && existing != clazz) {
+                    throw new IllegalArgumentException(clazz.getName() + " is written as "
+                            + SealedTypes.TYPE_PROPERTY_NAME + " '" + name + "', but that name already belongs to "
+                            + existing.getName() + " in the hierarchy rooted at " + root.getName()
+                            + ". Rename one of them so that the two derive different names.");
+                }
                 namesByClass.put(clazz, name);
             }
             if (sealed) {
-                queue.addAll(java.util.Arrays.asList(clazz.getPermittedSubclasses()));
+                queue.addAll(Arrays.asList(clazz.getPermittedSubclasses()));
             }
-        }
-    }
-
-    private static void register(Class<?> root, Map<String, Subtype> byName, String name, Subtype subtype,
-                                 Class<?> declaring) {
-        Subtype existing = byName.putIfAbsent(name, subtype);
-        if (existing != null && !existing.equals(subtype)) {
-            throw new IllegalArgumentException(declaring.getName() + " is written as "
-                    + SealedTypes.TYPE_PROPERTY_NAME + " '" + name + "', but that name already belongs to "
-                    + existing.type().getName() + " in the hierarchy rooted at " + root.getName()
-                    + ". Rename one of them so that the two derive different names.");
         }
     }
 
@@ -132,26 +130,36 @@ final class SealedHierarchy {
      * {@code baseClass} here, so a name from a sibling branch does not resolve into a property that
      * could not hold it.
      */
-    Subtype resolve(Class<?> baseClass, String typeName) {
+    Class<?> resolve(Class<?> baseClass, String typeName) {
         if (typeName == null) {
             return null;
         }
-        Subtype subtype = byName.get(typeName);
-        return (subtype != null && baseClass.isAssignableFrom(subtype.type())) ? subtype : null;
+        Class<?> subtype = byName.get(typeName);
+        return (subtype != null && baseClass.isAssignableFrom(subtype)) ? subtype : null;
+    }
+
+    /**
+     * Explains that a value read at this hierarchy's base was not an object, when the reason is that
+     * the hierarchy permits an enum - which Jackson writes as a string, and which therefore cannot
+     * be dispatched on. Returns {@code null} when that is not the explanation.
+     */
+    String enumMemberHint() {
+        if (enumMembers.isEmpty()) {
+            return null;
+        }
+        return " The hierarchy permits " + enumMembers.stream().map(Class::getSimpleName)
+                .collect(Collectors.joining(", ")) + ", which Jackson writes as a string rather than a tagged "
+                + "object, so a value of that type cannot be read back through " + root.getSimpleName()
+                + ". Declare the property as the enum type itself, or replace the enum with final classes.";
     }
 
     /** The {@code @type} name for a concrete implementation. */
     String nameOf(Class<?> clazz) {
         String name = namesByClass.get(clazz);
         if (name == null) {
-            throw new IllegalArgumentException(clazz.getName() + " is not a permitted implementation of the "
-                    + SealedPolymorphismSupport.class.getSimpleName() + " hierarchy rooted at " + root.getName() + ".");
+            throw new IllegalArgumentException(clazz.getName() + " is not a permitted implementation of the sealed "
+                    + "hierarchy rooted at " + root.getName() + ".");
         }
         return name;
-    }
-
-    /** The {@code @type} name of an enum constant of this hierarchy. */
-    String nameOfConstant(Enum<?> constant) {
-        return SealedTypes.typeNameFor(root, constant.getDeclaringClass()) + '$' + constant.name();
     }
 }

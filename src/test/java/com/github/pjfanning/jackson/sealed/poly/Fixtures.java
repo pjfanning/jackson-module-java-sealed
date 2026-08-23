@@ -242,7 +242,7 @@ public final class Fixtures {
 
     // an enum member of a marked hierarchy - the closest Java has to a set of Scala case objects,
     // so each constant is named individually rather than the enum class as a whole
-    public sealed interface Signal extends SealedPolymorphismSupport permits Data, Status {
+    public sealed interface Signal extends SealedPolymorphismSupport permits Data, Status, Mode {
     }
 
     public record Data(int value) implements Signal {
@@ -256,6 +256,51 @@ public final class Fixtures {
     }
 
     public record StatusHolder(Status status) {
+    }
+
+    // an enum whose constants have bodies, so it is implicitly sealed and abstract, and each
+    // constant compiles to an anonymous subclass - the shape most likely to trip a module that
+    // walks permitted subclasses
+    public sealed interface Gauge extends SealedPolymorphismSupport permits Reading, Level {
+    }
+
+    public record Reading(int v) implements Gauge {
+    }
+
+    public enum Level implements Gauge {
+        LOW {
+            @Override
+            public int weight() {
+                return 1;
+            }
+        },
+        HIGH {
+            @Override
+            public int weight() {
+                return 9;
+            }
+        };
+
+        public abstract int weight();
+    }
+
+    public record GaugeHolder(Gauge gauge) {
+    }
+
+    public record LevelHolder(Level level) {
+    }
+
+    // an enum with a custom JSON representation, to check the module does not override it
+    public enum Mode implements Signal {
+        FAST, SLOW;
+
+        @com.fasterxml.jackson.annotation.JsonValue
+        public String json() {
+            return name().toLowerCase(java.util.Locale.ROOT);
+        }
+    }
+
+    public record ModeHolder(Mode mode) {
     }
 
     // a hierarchy that is not marked - it must be untouched

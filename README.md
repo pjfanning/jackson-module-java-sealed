@@ -8,7 +8,7 @@ A Java port of the `SealedPolymorphismSupport` added to jackson-module-scala in
 using the same `@type` property and the same name-derivation rules, so a value written by one is
 readable by the other.
 
-> **Status: early.** Covered by 70 tests, including ports of the Scala module's
+> **Status: early.** Covered by 76 tests, including ports of the Scala module's
 > `SealedPolymorphismSpec` and `NestedPolymorphismSpec`, so the examples below are verified output.
 > Not published anywhere yet, and the API may still change.
 
@@ -117,10 +117,11 @@ This is the main thing the Java version does better than the Scala one. scalac l
 `sealed` on the JVM, so jackson-module-scala has to rebuild candidate class names from where the
 base is declared and filter them by subtype relationship.
 
-## Enum members
+## Enums are left to Jackson
 
-An enum in a sealed hierarchy is the closest Java has to a set of Scala `case object`s. Because the
-enum class holds several values, each *constant* is named individually:
+This module does not touch enums, even ones permitted by a hierarchy it handles. Jackson writes an
+enum as a string, and it keeps doing so — in every position, including as a `Map` key, and including
+an enum with a custom `@JsonValue` representation or with constant bodies.
 
 ```java
 public sealed interface Signal extends SealedPolymorphismSupport permits Data, Status {}
@@ -128,12 +129,21 @@ public sealed interface Signal extends SealedPolymorphismSupport permits Data, S
 public record Data(int value) implements Signal {}
 public enum Status implements Signal { IDLE, BUSY }
 
-// {"@type":"Data","value":1}
-// {"@type":"Status$IDLE"}
+// {"signal":{"@type":"Data","value":1}}   the record is tagged
+// {"signal":"IDLE"}                       the enum is not
 ```
 
-Only value serializers are replaced — an enum used as a `Map` key keeps Jackson's ordinary key
-handling, since a tagged object cannot be a JSON property name.
+An enum therefore has no `@type` name, which has one consequence worth knowing: **a value of an
+enum member cannot be read back through the hierarchy's base type.** A string is not something the
+base type can dispatch on, so reading `{"signal":"IDLE"}` as a `Signal` fails, and says why. Writing
+works, and reading works wherever the property is declared as the enum type itself.
+
+If you need a hierarchy member that round-trips through the base type and carries no state, use a
+record with no components — `record Unknown() implements Animal {}` writes as `{"@type":"Unknown"}`
+and reads straight back.
+
+Putting the marker on an enum is not an error, it just has no effect: the enum is written as a
+string either way.
 
 ## Concrete sealed roots
 
@@ -165,9 +175,10 @@ that could not be read back:
 | `sealed class X implements SealedPolymorphismSupport` | supported — a value and a base |
 | `interface X extends SealedPolymorphismSupport` | error: not sealed |
 | `non-sealed class X implements Base` | error: reopens the hierarchy |
-| `enum X implements SealedPolymorphismSupport` | error: mark the sealed interface it implements |
+| `enum X implements SealedPolymorphismSupport` | ignored — enums are always Jackson's to write |
 
-Records and enum constants are closed by construction and need no modifier of their own.
+Records are closed by construction and need no modifier of their own. An enum permitted by the root
+is skipped rather than checked, since this module does not handle it either way.
 
 ## Working alongside `@JsonTypeInfo`
 
@@ -194,11 +205,12 @@ performance but not behaviour.
 
 ## Tests
 
-70 tests, in `src/test/java/com/github/pjfanning/jackson/sealed/`:
+76 tests, in `src/test/java/com/github/pjfanning/jackson/sealed/`:
 
 | Test | Covers |
 | --- | --- |
-| `poly/SealedPolymorphismTest` | Ported from the Scala `SealedPolymorphismSpec`, plus enum members |
+| `poly/SealedPolymorphismTest` | Ported from the Scala `SealedPolymorphismSpec` |
+| `poly/EnumsUntouchedTest` | That enums serialize identically with and without this module |
 | `poly/NestedPolymorphismTest` | Ported from the Scala `NestedPolymorphismSpec` — a polymorphic value holding a polymorphic value |
 | `poly/InvalidHierarchyTest` | The four ways a hierarchy can fail to be closed, on both the read and the write path |
 | `SealedTypesTest` | The name derivation itself, and resolution |
@@ -209,8 +221,9 @@ performance but not behaviour.
   endpoint, which are deliberately not wired up yet.
 - A Jackson 2.x build. All Jackson API contact is confined to the serializer and deserializer
   classes, so the reflection core would port unchanged.
-- Polymorphic values as `Map` keys. An enum key keeps Jackson's ordinary key handling; a tagged
-  object cannot be a JSON property name, so a marked hierarchy is not usable as a key type.
+- Polymorphic values as `Map` keys. A tagged object cannot be a JSON property name, so a handled
+  hierarchy is not usable as a key type. Enum keys are unaffected, being Jackson's to write.
+- Reading an enum member back through the hierarchy's base type — see above.
 
 ## License
 
