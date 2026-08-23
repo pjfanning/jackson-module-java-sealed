@@ -1,0 +1,83 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+}
+
+group = project.property('group')
+version = project.property('version')
+
+repositories {
+    mavenCentral()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+    withSourcesJar()
+    withJavadocJar()
+}
+
+dependencies {
+    api "tools.jackson.core:jackson-databind:${jacksonVersion}"
+
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'org.assertj:assertj-core:3.25.3'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-Xlint:all', '-Xlint:-serial', '-parameters']
+}
+
+tasks.withType(Javadoc).configureEach {
+    options.addStringOption('Xdoclint:none', '-quiet')
+    options.encoding = 'UTF-8'
+}
+
+// Version metadata read back at runtime by SealedPolymorphismModule.version()
+def generateVersionResource = tasks.register('generateVersionResource', WriteProperties) {
+    destinationFile = layout.buildDirectory.file('generated/version/com/github/pjfanning/jackson/sealed/version.properties')
+    property 'version', project.version
+    property 'groupId', project.group
+    property 'artifactId', project.name
+}
+
+sourceSets.main.output.dir(layout.buildDirectory.dir('generated/version'), builtBy: generateVersionResource)
+
+tasks.named('processResources') {
+    dependsOn generateVersionResource
+}
+
+test {
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat = 'full'
+    }
+}
+
+jar {
+    manifest {
+        attributes(
+                'Implementation-Title': project.name,
+                'Implementation-Version': project.version,
+                'Automatic-Module-Name': 'com.github.pjfanning.jackson.sealed'
+        )
+    }
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+        }
+    }
+}
+
+tasks.register('printCp') {
+    def cp = configurations.compileClasspath
+    doLast { println cp.files.join(':') }
+}
