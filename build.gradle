@@ -10,9 +10,13 @@ repositories {
     mavenCentral()
 }
 
+// The JDK the build and tests run on. Overridden by CI to check newer JDKs; the bytecode always
+// targets 17 regardless, via options.release below.
+def javaVersion = (project.findProperty('javaVersion') ?: '17').toString()
+
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(17)
+        languageVersion = JavaLanguageVersion.of(javaVersion)
     }
     withSourcesJar()
     withJavadocJar()
@@ -28,6 +32,7 @@ dependencies {
 }
 
 tasks.withType(JavaCompile).configureEach {
+    options.release = 17
     options.encoding = 'UTF-8'
     options.compilerArgs += ['-Xlint:all', '-Xlint:-serial', '-parameters']
 }
