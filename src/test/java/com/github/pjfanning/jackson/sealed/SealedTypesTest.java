@@ -13,6 +13,9 @@ import org.junit.jupiter.api.Test;
  */
 class SealedTypesTest {
 
+    /** No registrations - these cover the marker path. See RegisteredTypeTest for the other one. */
+    private final SealedTypes types = new SealedTypes();
+
     @Test
     void derivesPrefixesLongestFirstForATopLevelRoot() {
         assertThat(SealedTypes.prefixesFor("com.example.Dup"))
@@ -77,40 +80,40 @@ class SealedTypesTest {
 
     @Test
     void findsTheTopOfTheHierarchy() {
-        assertThat(SealedTypes.rootOf(Fixtures.Dog.class)).isEqualTo(Fixtures.Animal.class);
-        assertThat(SealedTypes.rootOf(Fixtures.Animal.class)).isEqualTo(Fixtures.Animal.class);
-        assertThat(SealedTypes.rootOf(Fixtures.Twig.class)).isEqualTo(Fixtures.Node.class);
-        assertThat(SealedTypes.rootOf(Fixtures.Status.class)).isEqualTo(Fixtures.Signal.class);
+        assertThat(types.rootOf(Fixtures.Dog.class)).isEqualTo(Fixtures.Animal.class);
+        assertThat(types.rootOf(Fixtures.Animal.class)).isEqualTo(Fixtures.Animal.class);
+        assertThat(types.rootOf(Fixtures.Twig.class)).isEqualTo(Fixtures.Node.class);
+        assertThat(types.rootOf(Fixtures.Status.class)).isEqualTo(Fixtures.Signal.class);
     }
 
     @Test
-    void treatsTheMarkerItselfAsUnmarked() {
-        assertThat(SealedTypes.isMarked(SealedPolymorphismSupport.class)).isFalse();
-        assertThat(SealedTypes.isMarked(Fixtures.Dog.class)).isTrue();
-        assertThat(SealedTypes.isMarked(Fixtures.PlainDog.class)).isFalse();
+    void treatsTheMarkerItselfAsNotOptedIn() {
+        assertThat(types.isOptedIn(SealedPolymorphismSupport.class)).isFalse();
+        assertThat(types.isOptedIn(Fixtures.Dog.class)).isTrue();
+        assertThat(types.isOptedIn(Fixtures.PlainDog.class)).isFalse();
     }
 
     @Test
     void standsDownForAHierarchyThatCarriesJsonTypeInfo() {
-        assertThat(SealedTypes.isMarked(Fixtures.Cheque.class)).isTrue();
-        assertThat(SealedTypes.isSupported(Fixtures.Cheque.class)).isFalse();
-        assertThat(SealedTypes.hierarchyOf(Fixtures.Cheque.class).isJacksonOwned()).isTrue();
+        assertThat(types.isOptedIn(Fixtures.Cheque.class)).isTrue();
+        assertThat(types.isSupported(Fixtures.Cheque.class)).isFalse();
+        assertThat(types.hierarchyOf(Fixtures.Cheque.class).isJacksonOwned()).isTrue();
     }
 
     @Test
     void tellsBaseTypesFromValues() {
-        assertThat(SealedTypes.isBaseType(Fixtures.Animal.class)).isTrue();
-        assertThat(SealedTypes.isBaseType(Fixtures.Shape.class)).isTrue();
-        assertThat(SealedTypes.isBaseType(Fixtures.Dog.class)).isFalse();
-        assertThat(SealedTypes.isBaseType(Fixtures.Node.class)).isFalse();
+        assertThat(types.isBaseType(Fixtures.Animal.class)).isTrue();
+        assertThat(types.isBaseType(Fixtures.Shape.class)).isTrue();
+        assertThat(types.isBaseType(Fixtures.Dog.class)).isFalse();
+        assertThat(types.isBaseType(Fixtures.Node.class)).isFalse();
     }
 
     @Test
     void dispatchesOnlyAtAConcreteTypeThatIsExtended() {
-        assertThat(SealedTypes.needsSubtypeDispatch(Fixtures.Node.class)).isTrue();
-        assertThat(SealedTypes.needsSubtypeDispatch(Fixtures.Branch.class)).isTrue();
-        assertThat(SealedTypes.needsSubtypeDispatch(Fixtures.Twig.class)).isFalse();
-        assertThat(SealedTypes.needsSubtypeDispatch(Fixtures.Dog.class)).isFalse();
+        assertThat(types.needsSubtypeDispatch(Fixtures.Node.class)).isTrue();
+        assertThat(types.needsSubtypeDispatch(Fixtures.Branch.class)).isTrue();
+        assertThat(types.needsSubtypeDispatch(Fixtures.Twig.class)).isFalse();
+        assertThat(types.needsSubtypeDispatch(Fixtures.Dog.class)).isFalse();
     }
 
     @Test
@@ -123,7 +126,7 @@ class SealedTypesTest {
     /** An enum permitted by the root is Jackson's to write, so it takes no name in the table. */
     @Test
     void givesNoNameToAnEnumMember() {
-        SealedHierarchy hierarchy = SealedTypes.hierarchyOf(Fixtures.Signal.class);
+        SealedHierarchy hierarchy = types.hierarchyOf(Fixtures.Signal.class);
         assertThat(hierarchy.resolve(Fixtures.Signal.class, "Status")).isNull();
         assertThat(hierarchy.resolve(Fixtures.Signal.class, "Status$IDLE")).isNull();
         assertThat(hierarchy.resolve(Fixtures.Signal.class, "IDLE")).isNull();
@@ -133,29 +136,29 @@ class SealedTypesTest {
 
     @Test
     void doesNotHandleAnEnumMember() {
-        assertThat(SealedTypes.isMarked(Fixtures.Status.class)).isTrue();
-        assertThat(SealedTypes.isSupported(Fixtures.Status.class)).isFalse();
-        assertThat(SealedTypes.isBaseType(Fixtures.Status.class)).isFalse();
-        assertThat(SealedTypes.needsSubtypeDispatch(Fixtures.Status.class)).isFalse();
+        assertThat(types.isOptedIn(Fixtures.Status.class)).isTrue();
+        assertThat(types.isSupported(Fixtures.Status.class)).isFalse();
+        assertThat(types.isBaseType(Fixtures.Status.class)).isFalse();
+        assertThat(types.needsSubtypeDispatch(Fixtures.Status.class)).isFalse();
     }
 
     @Test
     void resolvesANameToItsImplementation() {
-        SealedHierarchy hierarchy = SealedTypes.hierarchyOf(Fixtures.Animal.class);
+        SealedHierarchy hierarchy = types.hierarchyOf(Fixtures.Animal.class);
         assertThat(hierarchy.resolve(Fixtures.Animal.class, "Dog")).isEqualTo(Fixtures.Dog.class);
     }
 
     /** A name only resolves where the declared type could actually hold the result. */
     @Test
     void refusesANameFromASiblingBranch() {
-        SealedHierarchy hierarchy = SealedTypes.hierarchyOf(Fixtures.Animal.class);
+        SealedHierarchy hierarchy = types.hierarchyOf(Fixtures.Animal.class);
         assertThat(hierarchy.resolve(Fixtures.Animal.class, "Bird")).isEqualTo(Fixtures.Bird.class);
         assertThat(hierarchy.resolve(Fixtures.Dog.class, "Bird")).isNull();
     }
 
     @Test
     void refusesANameFromOutsideTheHierarchy() {
-        SealedHierarchy hierarchy = SealedTypes.hierarchyOf(Fixtures.Animal.class);
+        SealedHierarchy hierarchy = types.hierarchyOf(Fixtures.Animal.class);
         assertThat(hierarchy.resolve(Fixtures.Animal.class, "Rect")).isNull();
         assertThat(hierarchy.resolve(Fixtures.Animal.class,
                 "com.github.pjfanning.jackson.sealed.poly.Fixtures$Dog")).isNull();
@@ -164,16 +167,16 @@ class SealedTypesTest {
 
     @Test
     void refusesToNameATypeOutsideTheHierarchy() {
-        assertThatThrownBy(() -> SealedTypes.hierarchyOf(Fixtures.Animal.class).nameOf(String.class))
+        assertThatThrownBy(() -> types.hierarchyOf(Fixtures.Animal.class).nameOf(String.class))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("is not a permitted implementation");
     }
 
     @Test
     void survivesTheCacheBeingCleared() {
-        SealedHierarchy before = SealedTypes.hierarchyOf(Fixtures.Animal.class);
+        SealedHierarchy before = types.hierarchyOf(Fixtures.Animal.class);
         SealedPolymorphismModule.clearCache();
-        SealedHierarchy after = SealedTypes.hierarchyOf(Fixtures.Animal.class);
+        SealedHierarchy after = types.hierarchyOf(Fixtures.Animal.class);
         assertThat(after).isNotSameAs(before);
         assertThat(after.resolve(Fixtures.Animal.class, "Dog")).isEqualTo(Fixtures.Dog.class);
     }

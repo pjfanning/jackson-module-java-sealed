@@ -17,6 +17,9 @@ import com.github.pjfanning.jackson.sealed.poly.Fixtures.Signal;
 import com.github.pjfanning.jackson.sealed.poly.Fixtures.SignalHolder;
 import com.github.pjfanning.jackson.sealed.poly.Fixtures.Status;
 import com.github.pjfanning.jackson.sealed.poly.Fixtures.StatusHolder;
+import com.github.pjfanning.jackson.sealed.poly.UnmarkedFixtures.Beacon;
+import com.github.pjfanning.jackson.sealed.poly.UnmarkedFixtures.BeaconHolder;
+import com.github.pjfanning.jackson.sealed.poly.UnmarkedFixtures.Colour;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
@@ -31,7 +34,7 @@ import tools.jackson.databind.json.JsonMapper;
 class EnumsUntouchedTest {
 
     private final ObjectMapper withModule = JsonMapper.builder()
-            .addModule(new SealedPolymorphismModule())
+            .addModule(new SealedPolymorphismModule().registerSealedInterfaceOrClass(Beacon.class))
             .build();
     private final ObjectMapper vanilla = JsonMapper.builder().build();
 
@@ -40,11 +43,18 @@ class EnumsUntouchedTest {
     }
 
     @Test
-    void writesAnEnumMemberOfAHierarchyAsPlainJacksonDoes() {
+    void writesAnEnumMemberOfAMarkedHierarchyAsPlainJacksonDoes() {
         agreesWithPlainJackson(new SignalHolder(Status.IDLE));
         agreesWithPlainJackson(new StatusHolder(Status.BUSY));
         agreesWithPlainJackson(Status.IDLE);
         assertThat(withModule.writeValueAsString(new SignalHolder(Status.IDLE))).isEqualTo("{\"signal\":\"IDLE\"}");
+    }
+
+    @Test
+    void writesAnEnumMemberOfARegisteredHierarchyAsPlainJacksonDoes() {
+        agreesWithPlainJackson(new BeaconHolder(Colour.RED));
+        agreesWithPlainJackson(Colour.GREEN);
+        assertThat(withModule.writeValueAsString(new BeaconHolder(Colour.RED))).isEqualTo("{\"beacon\":\"RED\"}");
     }
 
     /**

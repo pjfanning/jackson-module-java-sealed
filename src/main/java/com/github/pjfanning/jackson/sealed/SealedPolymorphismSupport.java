@@ -52,11 +52,25 @@ package com.github.pjfanning.jackson.sealed;
  * doing so, so an enum member carries no {@code @type} name - which means a value of one cannot be
  * read back through the hierarchy's base type, though it reads normally where the property is
  * declared as the enum type itself. For a stateless member that does round trip through the base,
- * use a record with no components. Putting this marker on an enum has no effect.
+ * use a record with no components.
+ *
+ * <h2>Hierarchies you cannot change</h2>
+ *
+ * <p>A hierarchy whose source you do not control - from a library, or generated - can be opted in by
+ * registering it with the module instead of extending this interface:
+ *
+ * <pre>{@code
+ * new SealedPolymorphismModule()
+ *         .registerSealedInterfaceOrClass(Animal.class)
+ *         .registerSealedInterfaceOrClass(Shape.class)
+ * }</pre>
+ *
+ * <p>A registered hierarchy is handled identically to a marked one, and is held to the same
+ * requirement that it be sealed. See {@link SealedPolymorphismModule} for the details.
  *
  * <h2>Deferring to Jackson</h2>
  *
- * <p>{@code @JsonTypeInfo} on the base of a marked hierarchy switches this module off for that
+ * <p>{@code @JsonTypeInfo} on the base of a handled hierarchy switches this module off for that
  * hierarchy, leaving Jackson's own polymorphic handling in sole charge. The same annotation on an
  * implementation rather than on the base is a configuration error: Jackson would treat the
  * annotated class as a polymorphic base in its own right and demand a type id that nothing in a

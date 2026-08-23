@@ -33,14 +33,14 @@ record TaggedObject(String typeName, JsonParser parser) {
     }
 
     /** Reports a {@code @type} that names nothing in the hierarchy being read. */
-    static <T> T unresolved(DeserializationContext ctxt, Class<?> baseClass, String typeName) {
+    static <T> T unresolved(DeserializationContext ctxt, Class<?> baseClass, String typeName,
+                            SealedHierarchy hierarchy) {
         if (typeName == null) {
             return ctxt.reportInputMismatch(baseClass, "Expected a %s property naming an implementation of %s",
                     SealedTypes.TYPE_PROPERTY_NAME, baseClass.getName());
         }
         return ctxt.reportInputMismatch(baseClass, "'%s' is not an implementation of %s: no permitted subtype of "
                         + "the sealed hierarchy rooted at %s is written under that %s name",
-                typeName, baseClass.getName(), SealedTypes.hierarchyOf(baseClass).root().getName(),
-                SealedTypes.TYPE_PROPERTY_NAME);
+                typeName, baseClass.getName(), hierarchy.root().getName(), SealedTypes.TYPE_PROPERTY_NAME);
     }
 }
