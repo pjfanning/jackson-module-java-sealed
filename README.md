@@ -5,12 +5,12 @@ Automatic polymorphic serialization for Java 17+ `sealed` hierarchies, without t
 
 A Java port of the `SealedPolymorphismSupport` added to jackson-module-scala in
 [FasterXML/jackson-module-scala#835](https://github.com/FasterXML/jackson-module-scala/pull/835),
-using the same `@type` property and the same name-derivation rules, so a value written by one is
-readable by the other.
+using the same `@type` property and the same name-derivation rules. Enums are the one place the two
+diverge: Scala tags a `case object`, whereas this module leaves a Java enum to Jackson as a string.
 
 > **Status: early.** Covered by 76 tests, including ports of the Scala module's
 > `SealedPolymorphismSpec` and `NestedPolymorphismSpec`, so the examples below are verified output.
-> Not published anywhere yet, and the API may still change.
+> Snapshots are published, but there is no release yet and the API may still change.
 
 ## Requirements
 
@@ -164,9 +164,9 @@ An object with no `@type` at such a property is read as the type the property wa
 
 ## The hierarchy has to be closed
 
-Every marked type must be `sealed`, or `final` if it is a leaf. Anything else is reported as a
-configuration error the first time Jackson meets the type, rather than being written out as JSON
-that could not be read back:
+Every type this module handles must be `sealed`, or `final` if it is a leaf. Anything else is
+reported as a configuration error the first time Jackson meets the type, rather than being written
+out as JSON that could not be read back:
 
 | Declaration | Result |
 | --- | --- |
@@ -175,10 +175,13 @@ that could not be read back:
 | `sealed class X implements SealedPolymorphismSupport` | supported — a value and a base |
 | `interface X extends SealedPolymorphismSupport` | error: not sealed |
 | `non-sealed class X implements Base` | error: reopens the hierarchy |
-| `enum X implements SealedPolymorphismSupport` | ignored — enums are always Jackson's to write |
 
-Records are closed by construction and need no modifier of their own. An enum permitted by the root
-is skipped rather than checked, since this module does not handle it either way.
+Records are closed by construction and need no modifier of their own.
+
+Enums sit outside this rule entirely, because the module does not handle them. An enum permitted by
+the root is skipped rather than checked — whether it is `final`, or implicitly `sealed` because its
+constants have bodies — and `enum X implements SealedPolymorphismSupport` is ignored rather than
+rejected.
 
 ## Working alongside `@JsonTypeInfo`
 
@@ -212,7 +215,7 @@ performance but not behaviour.
 | `poly/SealedPolymorphismTest` | Ported from the Scala `SealedPolymorphismSpec` |
 | `poly/EnumsUntouchedTest` | That enums serialize identically with and without this module |
 | `poly/NestedPolymorphismTest` | Ported from the Scala `NestedPolymorphismSpec` — a polymorphic value holding a polymorphic value |
-| `poly/InvalidHierarchyTest` | The four ways a hierarchy can fail to be closed, on both the read and the write path |
+| `poly/InvalidHierarchyTest` | The three ways a hierarchy can fail to be closed — not sealed, reopened by a `non-sealed` member, clashing derived names — on both the read and the write path, plus that a marked enum is ignored |
 | `SealedTypesTest` | The name derivation itself, and resolution |
 
 ## Not done yet
