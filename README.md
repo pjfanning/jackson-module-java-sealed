@@ -8,9 +8,9 @@ A Java port of the `SealedPolymorphismSupport` added to jackson-module-scala in
 using the same `@type` property and the same name-derivation rules, so a value written by one is
 readable by the other.
 
-> **Status: prototype.** The code compiles and the fixtures are in place, but the round-trip tests
-> have not been written yet, so nothing here has been through an `ObjectMapper`. Treat the examples
-> below as the intended behaviour rather than as verified output.
+> **Status: early.** Covered by 70 tests, including ports of the Scala module's
+> `SealedPolymorphismSpec` and `NestedPolymorphismSpec`, so the examples below are verified output.
+> Not published anywhere yet, and the API may still change.
 
 ## Requirements
 
@@ -184,14 +184,24 @@ performance but not behaviour.
 ./gradlew build
 ```
 
+## Tests
+
+70 tests, in `src/test/java/com/github/pjfanning/jackson/sealed/`:
+
+| Test | Covers |
+| --- | --- |
+| `poly/SealedPolymorphismTest` | Ported from the Scala `SealedPolymorphismSpec`, plus enum members |
+| `poly/NestedPolymorphismTest` | Ported from the Scala `NestedPolymorphismSpec` — a polymorphic value holding a polymorphic value |
+| `poly/InvalidHierarchyTest` | The four ways a hierarchy can fail to be closed, on both the read and the write path |
+| `SealedTypesTest` | The name derivation itself, and resolution |
+
 ## Not done yet
 
-- The round-trip tests — JUnit ports of the Scala PR's `SealedPolymorphismSpec` and
-  `NestedPolymorphismSpec`. The fixtures they run against are already in
-  `src/test/java/com/github/pjfanning/jackson/sealed/poly/`.
 - Publishing to Maven Central.
 - A Jackson 2.x build. All Jackson API contact is confined to the serializer and deserializer
   classes, so the reflection core would port unchanged.
+- Polymorphic values as `Map` keys. An enum key keeps Jackson's ordinary key handling; a tagged
+  object cannot be a JSON property name, so a marked hierarchy is not usable as a key type.
 
 ## License
 
