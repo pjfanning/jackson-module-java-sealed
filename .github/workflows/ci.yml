@@ -25,11 +25,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK ${{ matrix.java }}
+      - name: Set up JDKs
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: ${{ matrix.java }}
+          # The matrix JDK compiles and runs the tests, through a Gradle toolchain. Gradle itself
+          # runs on the last entry, which is what becomes JAVA_HOME - so a JDK too new for Gradle
+          # to run on can still be tested against.
+          java-version: |
+            ${{ matrix.java }}
+            21
+
+      - name: Point Gradle's toolchain at the matrix JDK
+        run: echo "org.gradle.java.installations.fromEnv=JAVA_HOME_${{ matrix.java }}_X64" >> gradle.properties
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
