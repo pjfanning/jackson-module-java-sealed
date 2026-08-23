@@ -80,11 +80,16 @@ class InvalidHierarchyTest {
                 .satisfies(messageContaining("already belongs to"));
     }
 
+    /**
+     * An enum carrying the marker is not an error, it is simply ignored - enums are Jackson's to
+     * write however they are declared, so the marker has nothing to add and nothing to complain
+     * about.
+     */
     @Test
-    void refusesAnEnumMarkedDirectly() {
-        assertThatThrownBy(() -> mapper.writeValueAsString(new MarkedEnumHolder(MarkedEnum.ONE)))
-                .satisfies(messageContaining("MarkedEnum", "is an enum marked with",
-                        "mark the sealed interface it implements"));
+    void ignoresAnEnumMarkedDirectly() {
+        assertThat(mapper.writeValueAsString(new MarkedEnumHolder(MarkedEnum.ONE)))
+                .isEqualTo("{\"e\":\"ONE\"}");
+        assertThat(mapper.readValue("{\"e\":\"TWO\"}", MarkedEnumHolder.class).e()).isSameAs(MarkedEnum.TWO);
     }
 
     /**

@@ -38,7 +38,8 @@ final class SealedTypes {
      * twice.
      */
     static boolean isSupported(Class<?> clazz) {
-        return isMarked(clazz) && !hierarchyOf(clazz).isJacksonOwned();
+        // an enum is Jackson's to write, as a string; this module does not take that over
+        return isMarked(clazz) && enumClassOf(clazz) == null && !hierarchyOf(clazz).isJacksonOwned();
     }
 
     /** True for a type that can hold a value of its own, so can carry a name of its own. */

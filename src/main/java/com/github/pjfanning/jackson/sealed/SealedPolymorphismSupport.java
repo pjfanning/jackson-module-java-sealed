@@ -43,8 +43,16 @@ package com.github.pjfanning.jackson.sealed;
  * is neither - a plain interface, an abstract class that is not sealed, or a {@code non-sealed}
  * member, which reopens the hierarchy to subclasses that could never be resolved back from a name -
  * is reported as a configuration error the first time Jackson meets it, rather than being written
- * out as JSON that could not be read back. Records and enum constants are closed by construction
- * and need no modifier of their own.
+ * out as JSON that could not be read back. Records are closed by construction and need no modifier
+ * of their own.
+ *
+ * <h2>Enums are left to Jackson</h2>
+ *
+ * <p>An enum permitted by the root is not handled here. Jackson writes an enum as a string and keeps
+ * doing so, so an enum member carries no {@code @type} name - which means a value of one cannot be
+ * read back through the hierarchy's base type, though it reads normally where the property is
+ * declared as the enum type itself. For a stateless member that does round trip through the base,
+ * use a record with no components. Putting this marker on an enum has no effect.
  *
  * <h2>Deferring to Jackson</h2>
  *

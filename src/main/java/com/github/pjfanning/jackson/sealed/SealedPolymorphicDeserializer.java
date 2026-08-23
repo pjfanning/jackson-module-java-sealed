@@ -23,17 +23,15 @@ final class SealedPolymorphicDeserializer extends StdDeserializer<Object> {
     @Override
     public Object deserialize(JsonParser p, DeserializationContext ctxt) {
         if (p.currentToken() != JsonToken.START_OBJECT) {
-            return ctxt.reportInputMismatch(baseClass, "Expected a JSON object with a %s property to create %s",
-                    SealedTypes.TYPE_PROPERTY_NAME, baseClass.getName());
+            String hint = SealedTypes.hierarchyOf(baseClass).enumMemberHint();
+            return ctxt.reportInputMismatch(baseClass, "Expected a JSON object with a %s property to create %s.%s",
+                    SealedTypes.TYPE_PROPERTY_NAME, baseClass.getName(), hint == null ? "" : hint);
         }
         TaggedObject tagged = TaggedObject.split(p, ctxt);
-        Subtype subtype = SealedTypes.hierarchyOf(baseClass).resolve(baseClass, tagged.typeName());
+        Class<?> subtype = SealedTypes.hierarchyOf(baseClass).resolve(baseClass, tagged.typeName());
         if (subtype == null) {
             return TaggedObject.unresolved(ctxt, baseClass, tagged.typeName());
         }
-        if (subtype.singleton() != null) {
-            return subtype.singleton();
-        }
-        return ctxt.readValue(tagged.parser(), subtype.type());
+        return ctxt.readValue(tagged.parser(), subtype);
     }
 }
