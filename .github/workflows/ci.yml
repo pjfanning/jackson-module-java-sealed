@@ -52,3 +52,55 @@ jobs:
           name: test-report-java-${{ matrix.java }}
           path: build/reports/tests/test
           retention-days: 7
+
+  publish-snapshot:
+    name: Publish snapshot
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDKs
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          # 17 builds the artifact, matching the baseline the jar targets; Gradle runs on 21.
+          java-version: |
+            17
+            21
+
+      - name: Point Gradle's toolchain at JDK 17
+        run: echo "org.gradle.java.installations.fromEnv=JAVA_HOME_17_X64" >> gradle.properties
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Check publishing credentials
+        id: creds
+        env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+        run: |
+          if [ -z "$CENTRAL_USERNAME" ]; then
+            echo 'configured=false' >> "$GITHUB_OUTPUT"
+            echo '::warning::CENTRAL_USERNAME and CENTRAL_PASSWORD are not set - skipping the snapshot publish. Add them as repository secrets, using a Central Portal user token.'
+          else
+            echo 'configured=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check the version is a snapshot
+        if: steps.creds.outputs.configured == 'true'
+        run: |
+          version=$(sed -n 's/^version=//p' gradle.properties)
+          echo "version=$version"
+          case "$version" in
+            *-SNAPSHOT) ;;
+            *) echo "::error::version $version is not a snapshot, refusing to publish it to the snapshot repository"; exit 1 ;;
+          esac
+
+      - name: Publish to Sonatype Central snapshots
+        if: steps.creds.outputs.configured == 'true'
+        env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+        run: ./gradlew publishMavenJavaPublicationToCentralSnapshotsRepository --no-daemon

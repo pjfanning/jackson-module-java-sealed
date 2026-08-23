@@ -78,6 +78,45 @@ publishing {
     publications {
         mavenJava(MavenPublication) {
             from components.java
+            pom {
+                name = 'jackson-module-java-sealed'
+                description = 'Jackson module giving automatic polymorphic serialization to Java 17+ ' +
+                        'sealed hierarchies, without @JsonTypeInfo and @JsonSubTypes annotations'
+                url = 'https://github.com/pjfanning/jackson-module-java-sealed'
+                licenses {
+                    license {
+                        name = 'The Apache License, Version 2.0'
+                        url = 'https://www.apache.org/licenses/LICENSE-2.0.txt'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'pjfanning'
+                        name = 'PJ Fanning'
+                        url = 'https://github.com/pjfanning'
+                    }
+                }
+                scm {
+                    connection = 'scm:git:https://github.com/pjfanning/jackson-module-java-sealed.git'
+                    developerConnection = 'scm:git:ssh://git@github.com/pjfanning/jackson-module-java-sealed.git'
+                    url = 'https://github.com/pjfanning/jackson-module-java-sealed'
+                }
+            }
+        }
+    }
+    repositories {
+        // Snapshots on the Sonatype Central Portal. Credentials are a Central Portal user token,
+        // not the account password. Releases go through a different endpoint and need signing, so
+        // they are deliberately not wired up here yet.
+        maven {
+            name = 'centralSnapshots'
+            url = uri('https://central.sonatype.com/repository/maven-snapshots/')
+            credentials {
+                username = providers.gradleProperty('centralUsername')
+                        .orElse(providers.environmentVariable('CENTRAL_USERNAME')).getOrElse('')
+                password = providers.gradleProperty('centralPassword')
+                        .orElse(providers.environmentVariable('CENTRAL_PASSWORD')).getOrElse('')
+            }
         }
     }
 }

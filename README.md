@@ -19,16 +19,24 @@ readable by the other.
 
 ## Installing
 
-Not published to Maven Central yet. To build and install locally:
-
-```
-./gradlew publishToMavenLocal
-```
+Snapshots are published to the Sonatype Central snapshot repository on every commit to `main`.
+There is no release yet.
 
 ```groovy
+repositories {
+    mavenCentral()
+    maven { url = uri('https://central.sonatype.com/repository/maven-snapshots/') }
+}
+
 dependencies {
     implementation 'com.github.pjfanning:jackson-module-java-sealed:0.1.0-SNAPSHOT'
 }
+```
+
+Or build and install locally:
+
+```
+./gradlew publishToMavenLocal
 ```
 
 ## Using it
@@ -197,7 +205,8 @@ performance but not behaviour.
 
 ## Not done yet
 
-- Publishing to Maven Central.
+- A release. Only snapshots are published; releases need signing and the Central Portal release
+  endpoint, which are deliberately not wired up yet.
 - A Jackson 2.x build. All Jackson API contact is confined to the serializer and deserializer
   classes, so the reflection core would port unchanged.
 - Polymorphic values as `Map` keys. An enum key keeps Jackson's ordinary key handling; a tagged
