@@ -8,7 +8,7 @@ A Java port of the `SealedPolymorphismSupport` added to jackson-module-scala in
 using the same `@type` property and the same name-derivation rules. Enums are the one place the two
 diverge: Scala tags a `case object`, whereas this module leaves a Java enum to Jackson as a string.
 
-> **Status: early.** Covered by 76 tests, including ports of the Scala module's
+> **Status: early.** Covered by 90 tests, including ports of the Scala module's
 > `SealedPolymorphismSpec` and `NestedPolymorphismSpec`, so the examples below are verified output.
 > Snapshots are published, but there is no release yet and the API may still change.
 
@@ -74,8 +74,45 @@ mapper.readValue("{\"@type\":\"Dog\",\"name\":\"rex\"}", Animal.class);
 // Dog[name=rex]
 ```
 
-The module only ever looks at types carrying the marker, so registering it has no effect on
-anything else your application serializes.
+The module only ever looks at types that have opted in — through the marker, or through a
+[mix-in](#hierarchies-you-cannot-change) — so adding it has no effect on anything else your
+application serializes.
+
+## Hierarchies you cannot change
+
+Extending the marker means editing the base type. Where that is not possible — a hierarchy from a
+library, or generated code — register a Jackson **mix-in** that extends the marker instead:
+
+```java
+// yours, in your own package
+public interface AnimalMixIn extends SealedPolymorphismSupport {}
+
+ObjectMapper mapper = JsonMapper.builder()
+        .addModule(new SealedPolymorphismModule())
+        .addMixIn(Animal.class, AnimalMixIn.class)
+        .build();
+```
+
+The mix-in carries the marker and nothing else. It does not — and cannot — extend the hierarchy it
+is mixed into: a sealed type's `permits` clause names its subtypes, and someone who cannot change
+those classes cannot add themselves to it. Jackson never requires a mix-in to be a subtype of what
+it is mixed into; it only harvests annotations and supertypes from it.
+
+Mix it into the **root**; its implementations follow from the `permits` clause. A mix-in does not
+change the type on the JVM, so the marker is not inherited by the implementations the way it would
+be if the base extended it — only the root is opted in, and the module reads that from the mapper's
+configuration rather than from the classes.
+
+A mixed-in hierarchy is handled exactly as a marked one, and held to the same requirements: it must
+be sealed, a `non-sealed` member is still reported, and enums are still left to Jackson. Mixing into
+a type part way down a hierarchy is allowed and makes that type the root.
+
+Two mix-ins that are not opt-ins:
+
+| Mix-in | Result |
+| --- | --- |
+| does not extend `SealedPolymorphismSupport` | opts nothing in — the hierarchy stays untouched |
+| carries `@JsonTypeInfo` as well as the marker | the module stands down, as it does for the annotation on the class |
 
 ## How names are derived
 
@@ -208,12 +245,13 @@ performance but not behaviour.
 
 ## Tests
 
-76 tests, in `src/test/java/com/github/pjfanning/jackson/sealed/`:
+90 tests, in `src/test/java/com/github/pjfanning/jackson/sealed/`:
 
 | Test | Covers |
 | --- | --- |
 | `poly/SealedPolymorphismTest` | Ported from the Scala `SealedPolymorphismSpec` |
 | `poly/EnumsUntouchedTest` | That enums serialize identically with and without this module |
+| `poly/MixInTest` | Hierarchies opted in by a Jackson mix-in rather than by the marker |
 | `poly/NestedPolymorphismTest` | Ported from the Scala `NestedPolymorphismSpec` — a polymorphic value holding a polymorphic value |
 | `poly/InvalidHierarchyTest` | The three ways a hierarchy can fail to be closed — not sealed, reopened by a `non-sealed` member, clashing derived names — on both the read and the write path, plus that a marked enum is ignored |
 | `SealedTypesTest` | The name derivation itself, and resolution |

@@ -46,6 +46,31 @@ package com.github.pjfanning.jackson.sealed;
  * out as JSON that could not be read back. Records are closed by construction and need no modifier
  * of their own.
  *
+ * <h2>Hierarchies you cannot change</h2>
+ *
+ * <p>Extending this interface means editing the base type. Where that is not possible - a hierarchy
+ * from a library, or generated code - register a Jackson mix-in that extends it instead:
+ *
+ * <pre>{@code
+ * public interface AnimalMixIn extends SealedPolymorphismSupport {}
+ *
+ * JsonMapper.builder()
+ *         .addModule(new SealedPolymorphismModule())
+ *         .addMixIn(Animal.class, AnimalMixIn.class)
+ *         .build();
+ * }</pre>
+ *
+ * <p>The mix-in carries the marker and nothing else. It does not - and cannot - extend the hierarchy
+ * it is mixed into: a sealed type's {@code permits} clause names its subtypes, and someone who
+ * cannot change those classes cannot add themselves to it. Jackson never requires a mix-in to be a
+ * subtype of what it is mixed into.
+ *
+ * <p>Mix it into the <em>root</em>; its implementations follow from the {@code permits} clause. A
+ * mix-in does not change the type on the JVM, so the marker is not inherited by the implementations
+ * the way it would be if the base extended it - only the root is opted in, and the module reads that
+ * from the mapper's configuration. A hierarchy opted in this way is held to exactly the same
+ * requirements as one that extends the marker directly.
+ *
  * <h2>Enums are left to Jackson</h2>
  *
  * <p>An enum permitted by the root is not handled here. Jackson writes an enum as a string and keeps

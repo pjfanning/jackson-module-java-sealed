@@ -13,11 +13,13 @@ final class SealedPolymorphismDeserializers extends Deserializers.Base {
     public ValueDeserializer<?> findBeanDeserializer(JavaType type, DeserializationConfig config,
                                                      BeanDescription.Supplier beanDescRef) {
         Class<?> rawClass = type.getRawClass();
-        return hasDeserializerFor(config, rawClass) ? new SealedPolymorphicDeserializer(rawClass) : null;
+        return hasDeserializerFor(config, rawClass)
+                ? new SealedPolymorphicDeserializer(rawClass, SealedTypes.hierarchyOf(config, rawClass))
+                : null;
     }
 
     @Override
     public boolean hasDeserializerFor(DeserializationConfig config, Class<?> valueType) {
-        return SealedTypes.isBaseType(valueType);
+        return SealedTypes.isBaseType(config, valueType);
     }
 }

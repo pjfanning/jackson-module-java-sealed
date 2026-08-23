@@ -19,11 +19,11 @@ final class SealedPolymorphismDeserializerModifier extends ValueDeserializerModi
     public BeanDeserializerBuilder updateBuilder(DeserializationConfig config, BeanDescription.Supplier beanDescRef,
                                                  BeanDeserializerBuilder builder) {
         Class<?> rawClass = beanDescRef.getBeanClass();
-        if (!SealedTypes.isMarked(rawClass)) {
+        if (!SealedTypes.isMarked(config, rawClass)) {
             return builder;
         }
-        SealedTypes.checkNoConflictingJsonTypeInfo(rawClass);
-        if (SealedTypes.isSupported(rawClass) && SealedTypes.isConcrete(rawClass)) {
+        SealedTypes.checkNoConflictingJsonTypeInfo(config, rawClass);
+        if (SealedTypes.isSupported(config, rawClass) && SealedTypes.isConcrete(rawClass)) {
             builder.addIgnorable(SealedTypes.TYPE_PROPERTY_NAME);
         }
         return builder;
@@ -33,12 +33,12 @@ final class SealedPolymorphismDeserializerModifier extends ValueDeserializerModi
     public ValueDeserializer<?> modifyDeserializer(DeserializationConfig config, BeanDescription.Supplier beanDescRef,
                                                    ValueDeserializer<?> deserializer) {
         Class<?> rawClass = beanDescRef.getBeanClass();
-        if (!SealedTypes.needsSubtypeDispatch(rawClass)) {
+        if (!SealedTypes.needsSubtypeDispatch(config, rawClass)) {
             return deserializer;
         }
         @SuppressWarnings("unchecked")
         ValueDeserializer<Object> delegate = (ValueDeserializer<Object>) deserializer;
-        return new TaggedBeanDeserializer(rawClass, delegate);
+        return new TaggedBeanDeserializer(rawClass, SealedTypes.hierarchyOf(config, rawClass), delegate);
     }
 
 }

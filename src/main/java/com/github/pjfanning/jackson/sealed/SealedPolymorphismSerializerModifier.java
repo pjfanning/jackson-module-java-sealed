@@ -17,17 +17,17 @@ final class SealedPolymorphismSerializerModifier extends ValueSerializerModifier
     public ValueSerializer<?> modifySerializer(SerializationConfig config, BeanDescription.Supplier beanDescRef,
                                                ValueSerializer<?> serializer) {
         Class<?> rawClass = beanDescRef.getBeanClass();
-        if (!SealedTypes.isMarked(rawClass)) {
+        if (!SealedTypes.isMarked(config, rawClass)) {
             return serializer;
         }
-        SealedTypes.checkNoConflictingJsonTypeInfo(rawClass);
+        SealedTypes.checkNoConflictingJsonTypeInfo(config, rawClass);
         // a base type is never written directly - only the implementation dispatched to at runtime
-        if (!SealedTypes.isSupported(rawClass) || !SealedTypes.isConcrete(rawClass)) {
+        if (!SealedTypes.isSupported(config, rawClass) || !SealedTypes.isConcrete(rawClass)) {
             return serializer;
         }
         @SuppressWarnings("unchecked")
         ValueSerializer<Object> delegate = (ValueSerializer<Object>) serializer;
-        return new TypeTaggedSerializer(SealedTypes.hierarchyOf(rawClass).nameOf(rawClass), delegate);
+        return new TypeTaggedSerializer(SealedTypes.hierarchyOf(config, rawClass).nameOf(rawClass), delegate);
     }
 
 }

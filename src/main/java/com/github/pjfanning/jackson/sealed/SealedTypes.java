@@ -2,11 +2,13 @@ package com.github.pjfanning.jackson.sealed;
 
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import tools.jackson.databind.introspect.MixInResolver;
 
 /**
  * Naming rules and policy behind {@link SealedPolymorphismSupport}.
@@ -29,7 +31,49 @@ final class SealedTypes {
      * marker interface can be referred to without being treated as a hierarchy.
      */
     static boolean isMarked(Class<?> clazz) {
-        return clazz != null && clazz != MARKER && MARKER.isAssignableFrom(clazz);
+        return isMarked(null, clazz);
+    }
+
+    /**
+     * True for a type in a hierarchy this module handles.
+     *
+     * <p>A hierarchy opts in by extending the marker, or - where its source cannot be changed - by
+     * having a mix-in that extends the marker registered for its root. A mix-in does not change the
+     * type on the JVM, so the marker is not inherited by the implementations the way it would be:
+     * only the root is opted in directly, and its implementations are reached from there. That is
+     * why this asks the mapper's configuration rather than the class alone.
+     */
+    static boolean isMarked(MixInResolver mixIns, Class<?> clazz) {
+        if (clazz == null || clazz == MARKER) {
+            return false;
+        }
+        // unchanged cost for a mapper with no mix-ins, which is the usual case
+        if (MARKER.isAssignableFrom(clazz)) {
+            return true;
+        }
+        return hasMixIns(mixIns) && findRoot(mixIns, clazz) != null;
+    }
+
+    /** True where the mix-in registered for a type carries the marker. */
+    private static boolean markedByMixIn(MixInResolver mixIns, Class<?> clazz) {
+        if (!hasMixIns(mixIns)) {
+            return false;
+        }
+        Class<?> mixIn = mixIns.findMixInClassFor(clazz);
+        return mixIn != null && MARKER.isAssignableFrom(mixIn);
+    }
+
+    private static boolean hasMixIns(MixInResolver mixIns) {
+        return mixIns != null && mixIns.hasMixIns();
+    }
+
+    /** True where the mix-in registered for a type supplies {@code @JsonTypeInfo}. */
+    private static boolean jsonTypeInfoByMixIn(MixInResolver mixIns, Class<?> clazz) {
+        if (!hasMixIns(mixIns)) {
+            return false;
+        }
+        Class<?> mixIn = mixIns.findMixInClassFor(clazz);
+        return mixIn != null && mixIn.getAnnotation(JsonTypeInfo.class) != null;
     }
 
     /**
@@ -38,8 +82,19 @@ final class SealedTypes {
      * twice.
      */
     static boolean isSupported(Class<?> clazz) {
+        return isSupported(null, clazz);
+    }
+
+    static boolean isSupported(MixInResolver mixIns, Class<?> clazz) {
         // an enum is Jackson's to write, as a string; this module does not take that over
-        return isMarked(clazz) && enumClassOf(clazz) == null && !hierarchyOf(clazz).isJacksonOwned();
+        if (!isMarked(mixIns, clazz) || enumClassOf(clazz) != null) {
+            return false;
+        }
+        // asked before the hierarchy is built, since a hierarchy Jackson owns need not be sealed
+        if (jsonTypeInfoByMixIn(mixIns, rootOf(mixIns, clazz))) {
+            return false;
+        }
+        return !hierarchyOf(mixIns, clazz).isJacksonOwned();
     }
 
     /** True for a type that can hold a value of its own, so can carry a name of its own. */
@@ -52,7 +107,11 @@ final class SealedTypes {
      * class. Reading one means reading whatever its {@code @type} names.
      */
     static boolean isBaseType(Class<?> clazz) {
-        return isSupported(clazz) && !isConcrete(clazz);
+        return isBaseType(null, clazz);
+    }
+
+    static boolean isBaseType(MixInResolver mixIns, Class<?> clazz) {
+        return isSupported(mixIns, clazz) && !isConcrete(clazz);
     }
 
     /**
@@ -62,7 +121,11 @@ final class SealedTypes {
      * would silently be read back as the type the property was declared as.
      */
     static boolean needsSubtypeDispatch(Class<?> clazz) {
-        return isSupported(clazz) && isConcrete(clazz) && clazz.isSealed();
+        return needsSubtypeDispatch(null, clazz);
+    }
+
+    static boolean needsSubtypeDispatch(MixInResolver mixIns, Class<?> clazz) {
+        return isSupported(mixIns, clazz) && isConcrete(clazz) && clazz.isSealed();
     }
 
     /**
@@ -73,8 +136,13 @@ final class SealedTypes {
      * back.
      */
     static void checkNoConflictingJsonTypeInfo(Class<?> clazz) {
-        if (isSupported(clazz) && clazz.getAnnotation(JsonTypeInfo.class) != null) {
-            Class<?> root = hierarchyOf(clazz).root();
+        checkNoConflictingJsonTypeInfo(null, clazz);
+    }
+
+    static void checkNoConflictingJsonTypeInfo(MixInResolver mixIns, Class<?> clazz) {
+        if (isSupported(mixIns, clazz)
+                && (clazz.getAnnotation(JsonTypeInfo.class) != null || jsonTypeInfoByMixIn(mixIns, clazz))) {
+            Class<?> root = hierarchyOf(mixIns, clazz).root();
             throw new IllegalArgumentException(clazz.getName() + " carries @JsonTypeInfo but belongs to the "
                     + MARKER.getSimpleName() + " hierarchy rooted at " + root.getName() + ". Move the annotation to "
                     + root.getSimpleName() + " to use Jackson's polymorphic handling for the whole hierarchy, or "
@@ -143,19 +211,33 @@ final class SealedTypes {
      * {@code @type}.
      */
     static Class<?> rootOf(Class<?> clazz) {
-        Set<Class<?>> marked = new LinkedHashSet<>();
-        collectMarked(clazz, marked);
+        return rootOf(null, clazz);
+    }
+
+    static Class<?> rootOf(MixInResolver mixIns, Class<?> clazz) {
+        Class<?> root = findRoot(mixIns, clazz);
+        if (root == null) {
+            throw new IllegalArgumentException(clazz.getName() + " does not implement " + MARKER.getName()
+                    + ", and no mix-in carrying it is registered for anything above it.");
+        }
+        return root;
+    }
+
+    /** The top of the opted-in hierarchy {@code clazz} belongs to, or {@code null} if there is none. */
+    private static Class<?> findRoot(MixInResolver mixIns, Class<?> clazz) {
+        Set<Class<?>> optedIn = new LinkedHashSet<>();
+        collectOptedIn(mixIns, clazz, optedIn, new HashSet<>());
+        if (optedIn.isEmpty()) {
+            return null;
+        }
         Class<?> root = null;
-        for (Class<?> candidate : marked) {
+        for (Class<?> candidate : optedIn) {
             if (root == null || candidate.isAssignableFrom(root)) {
                 root = candidate;
             }
         }
-        if (root == null) {
-            throw new IllegalArgumentException(clazz.getName() + " does not implement " + MARKER.getName() + ".");
-        }
         List<String> disjoint = new ArrayList<>();
-        for (Class<?> candidate : marked) {
+        for (Class<?> candidate : optedIn) {
             if (!root.isAssignableFrom(candidate)) {
                 disjoint.add(candidate.getName());
             }
@@ -163,28 +245,39 @@ final class SealedTypes {
         if (!disjoint.isEmpty()) {
             throw new IllegalArgumentException(clazz.getName() + " belongs to more than one "
                     + MARKER.getSimpleName() + " hierarchy - " + root.getName() + " and " + String.join(", ", disjoint)
-                    + " - so there is no single hierarchy whose names it could be written under. Mark only one of "
-                    + "them, and let the other be a plain interface.");
+                    + " - so there is no single hierarchy whose names it could be written under. Opt only one of "
+                    + "them in, and let the other be a plain interface.");
         }
         return root;
     }
 
-    private static void collectMarked(Class<?> clazz, Set<Class<?>> into) {
-        if (clazz == null || clazz == MARKER || !MARKER.isAssignableFrom(clazz)) {
+    /**
+     * Collects every supertype that has opted in. A mix-in marks one type rather than everything
+     * below it, so unlike the marker the walk cannot stop at a supertype that has not opted in - a
+     * mix-in marked root may sit above several plain classes.
+     */
+    private static void collectOptedIn(MixInResolver mixIns, Class<?> clazz, Set<Class<?>> into,
+                                       Set<Class<?>> visited) {
+        if (clazz == null || clazz == Object.class || clazz == MARKER || !visited.add(clazz)) {
             return;
         }
-        if (!into.add(clazz)) {
-            return;
+        if (MARKER.isAssignableFrom(clazz) || markedByMixIn(mixIns, clazz)) {
+            into.add(clazz);
         }
-        collectMarked(clazz.getSuperclass(), into);
+        collectOptedIn(mixIns, clazz.getSuperclass(), into, visited);
         for (Class<?> iface : clazz.getInterfaces()) {
-            collectMarked(iface, into);
+            collectOptedIn(mixIns, iface, into, visited);
         }
     }
 
+
     /** The resolved hierarchy {@code clazz} belongs to, built once per root. */
     static SealedHierarchy hierarchyOf(Class<?> clazz) {
-        return cache.byMember.get(clazz);
+        return hierarchyOf(null, clazz);
+    }
+
+    static SealedHierarchy hierarchyOf(MixInResolver mixIns, Class<?> clazz) {
+        return cache.byRoot.get(rootOf(mixIns, clazz));
     }
 
     /**
@@ -196,20 +289,18 @@ final class SealedTypes {
     }
 
     /**
-     * Held in {@link ClassValue}s so that entries are collected along with the classes they describe
-     * rather than pinning a class loader, and replaced wholesale to clear.
+     * Held in a {@link ClassValue} so that entries are collected along with the classes they
+     * describe rather than pinning a class loader, and replaced wholesale to clear.
+     *
+     * <p>Keyed by root only. Which root a type belongs to can depend on the mapper's mix-ins, and so
+     * differ between mappers, but a root's name table is derived from the class files alone and is
+     * the same however that root opted in - so only the second half is memoized here.
      */
     private static final class Cache {
         final ClassValue<SealedHierarchy> byRoot = new ClassValue<>() {
             @Override
             protected SealedHierarchy computeValue(Class<?> root) {
                 return SealedHierarchy.of(root);
-            }
-        };
-        final ClassValue<SealedHierarchy> byMember = new ClassValue<>() {
-            @Override
-            protected SealedHierarchy computeValue(Class<?> type) {
-                return byRoot.get(rootOf(type));
             }
         };
     }
